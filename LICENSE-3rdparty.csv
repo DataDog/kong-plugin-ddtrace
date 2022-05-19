@@ -1,0 +1,3 @@
+Component,Origin,License,Copyright
+vendored,lua-MessagePack,MIT,Copyright (C) 2012-2019 Francois Perrad
+vendored,kong-plugin-zipkin,Apache-2.0,Copyright 2018-2019 Kong Inc.

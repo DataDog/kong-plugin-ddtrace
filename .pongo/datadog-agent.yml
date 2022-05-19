@@ -1,0 +1,13 @@
+version: '3.5'
+
+services:
+  datadog-agent:
+    image: 'datadog/agent'
+    volumes:
+    - '/var/run/docker.sock:/var/run/docker.sock:ro'
+    - '/proc/:/host/proc/:ro'
+    - '/sys/fs/cgroup/:/host/sys/fs/cgroup:ro'
+    environment:
+    - DD_API_KEY
+    networks:
+    - ${NETWORK_NAME}
