@@ -126,7 +126,7 @@ if subsystem == "http" then
 
     local ngx_ctx = ngx.ctx
     local rewrite_start_ns = (ngx_ctx.KONG_REWRITE_START and ngx_ctx.KONG_REWRITE_START or ngx_now_mu()) * 1000LL
-    kong.log.err("rewrite_start: " .. rewrite_start_ns)
+    kong.log.err("rewrite_start: " .. tostring(rewrite_start_ns))
 
     local request_span = new_span(
       conf.service or "kong",
