@@ -5,7 +5,6 @@ local propagator = require "kong.plugins.ddtrace.propagation"
 
 
 local subsystem = ngx.config.subsystem
-local fmt = string.format
 local rand_bytes = utils.get_rand_bytes
 
 local DatadogTraceHandler = {
@@ -19,19 +18,17 @@ local DatadogTraceHandler = {
 local agent_writer_cache = setmetatable({}, { __mode = "k" })
 
 local math_random        = math.random
-local ngx_req_start_time = ngx.req.start_time
 local ngx_now            = ngx.now
 
 
 -- ngx.now in microseconds
 local function ngx_now_mu()
-  return ngx_now() * 1000
+    return ngx_now() * 1000000
 end
 
 
 -- ngx.req.start_time in nanoseconds
 local function ngx_req_start_time_mu()
-    kong.log.err(tostring(ngx_req_start_time() * 1000000LL) .. " " .. ngx.ctx.KONG_REWRITE_START)
     return ngx.ctx.KONG_REWRITE_START * 1000000LL
 end
 
@@ -125,8 +122,7 @@ if subsystem == "http" then
     end
 
     local ngx_ctx = ngx.ctx
-    local rewrite_start_ns = (ngx_ctx.KONG_REWRITE_START and ngx_ctx.KONG_REWRITE_START or ngx_now_mu()) * 1000LL
-    kong.log.err("rewrite_start: " .. tostring(rewrite_start_ns))
+    local rewrite_start_ns = (ngx_ctx.KONG_REWRITE_START and ngx_ctx.KONG_REWRITE_START  * 1000) * 1000LL
 
     local request_span = new_span(
       conf.service or "kong",
@@ -176,7 +172,7 @@ if subsystem == "http" then
     local rewrite_start_mu =
       ngx_ctx.KONG_REWRITE_START and ngx_ctx.KONG_REWRITE_START * 1000
       or ngx_now_mu()
-    datadog.request_span:set_tag("krs", rewrite_start_mu)
+    datadog.request_span:set_tag("krs", rewrite_start_mu * 1000LL)
   end
 
 
@@ -187,9 +183,9 @@ if subsystem == "http" then
     local access_start =
       ngx_ctx.KONG_ACCESS_START and ngx_ctx.KONG_ACCESS_START * 1000
       or ngx_now_mu()
-    get_or_add_proxy_span(datadog, access_start * 1000LL)
+    local proxy_span = get_or_add_proxy_span(datadog, access_start * 1000LL)
 
-    propagator.inject(datadog.proxy_span)
+    propagator.inject(proxy_span)
   end
 
 
@@ -272,6 +268,9 @@ function DatadogTraceHandler:log(conf) -- luacheck: ignore 212
   local proxy_finish_mu =
     ngx_ctx.KONG_BODY_FILTER_ENDED_AT and ngx_ctx.KONG_BODY_FILTER_ENDED_AT * 1000
     or now_mu
+  local request_finish_mu =
+    ngx_ctx.KONG_LOG_START and ngx_ctx.KONG_LOG_START * 1000
+    or now_mu
 
   if ngx_ctx.KONG_REWRITE_START and ngx_ctx.KONG_REWRITE_TIME then
     -- note: rewrite is logged on the request span, not on the proxy span
@@ -353,7 +352,7 @@ function DatadogTraceHandler:log(conf) -- luacheck: ignore 212
   tag_with_service_and_route(proxy_span)
 
   proxy_span:finish(proxy_finish_mu * 1000LL)
-  request_span:finish(now_mu * 1000LL)
+  request_span:finish(request_finish_mu * 1000LL)
   agent_writer:add({request_span, proxy_span})
 
   local ok, err = ngx.timer.at(0, timer_log, agent_writer)

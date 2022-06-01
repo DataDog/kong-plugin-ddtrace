@@ -49,11 +49,8 @@ local function inject(span)
     local set_header = kong.service.request.set_header
     local trace_id_str = tostring(span.trace_id)
     set_header("x-datadog-trace-id", string.sub(trace_id_str, 1, #trace_id_str - 3))
-    -- the rest might be nil, but that's ok
-    if span.parent_id then
-        local parent_id_str = tostring(span.parent_id)
-        set_header("x-datadog-parent-id", string.sub(parent_id_str, 1, #parent_id_str - 3))
-    end
+    local parent_id_str = tostring(span.span_id)
+    set_header("x-datadog-parent-id", string.sub(parent_id_str, 1, #parent_id_str - 3))
     if span.sampling_priority then
         set_header("x-datadog-sampling-priority", tostring(span.sampling_priority))
     end

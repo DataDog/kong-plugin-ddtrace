@@ -78,7 +78,7 @@ function span_methods:finish(finish_timestamp)
     assert(self.duration == nil, "span already finished")
     assert(ffi.istype(int64_t, finish_timestamp) and finish_timestamp >= 0, "invalid span finish_timestamp")
     local duration = finish_timestamp - self.start_timestamp
-    assert(duration >= 0, "invalid span duration")
+    assert(duration >= 0, "invalid span duration: " .. tostring(finish_timestamp) .. " < " .. tostring(self.start_timestamp))
     self.duration = duration
     return true
 end
