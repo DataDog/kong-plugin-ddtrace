@@ -27,13 +27,13 @@ end
 
 local function new(service, name, resource,
                    trace_id, span_id, parent_id,
-                   start_timestamp, sampling_priority, origin)
+                   start, sampling_priority, origin)
     assert(type(name) == "string" and name ~= "", "invalid span name")
     assert(type(resource) == "string" and resource ~= "", "invalid span resource")
     assert(trace_id == nil or ffi.istype(uint64_t, trace_id), "invalid trace id")
     assert(span_id == nil or ffi.istype(uint64_t, span_id), "invalid span id")
     assert(parent_id == nil or ffi.istype(uint64_t, parent_id), "invalid parent id")
-    assert(ffi.istype(int64_t, start_timestamp) and start_timestamp >= 0, "invalid span start_timestamp")
+    assert(ffi.istype(int64_t, start) and start >= 0, "invalid span start timestamp")
     assert(type(sampling_priority) == "number", "invalid sampling priority")
 
     if trace_id == nil then
@@ -51,7 +51,7 @@ local function new(service, name, resource,
         trace_id = trace_id,
         span_id = span_id,
         parent_id = parent_id,
-        start_timestamp = start_timestamp,
+        start = start,
         sampling_priority = sampling_priority,
         origin = origin,
         meta = {},
@@ -59,7 +59,7 @@ local function new(service, name, resource,
 end
 
 
-function span_methods:new_child(name, resource, start_timestamp)
+function span_methods:new_child(name, resource, start)
     return new(
     self.service,
     name,
@@ -67,7 +67,7 @@ function span_methods:new_child(name, resource, start_timestamp)
     self.trace_id,
     generate_span_id(),
     self.span_id,
-    start_timestamp,
+    start,
     self.sampling_priority,
     self.origin
     )
@@ -77,8 +77,8 @@ end
 function span_methods:finish(finish_timestamp)
     assert(self.duration == nil, "span already finished")
     assert(ffi.istype(int64_t, finish_timestamp) and finish_timestamp >= 0, "invalid span finish_timestamp")
-    local duration = finish_timestamp - self.start_timestamp
-    assert(duration >= 0, "invalid span duration: " .. tostring(finish_timestamp) .. " < " .. tostring(self.start_timestamp))
+    local duration = finish_timestamp - self.start
+    assert(duration >= 0, "invalid span duration: " .. tostring(finish_timestamp) .. " < " .. tostring(self.start))
     self.duration = duration
     return true
 end

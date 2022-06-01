@@ -3,7 +3,6 @@ local new_span = require "kong.plugins.ddtrace.span".new
 local utils = require "kong.tools.utils"
 local propagator = require "kong.plugins.ddtrace.propagation"
 
-
 local subsystem = ngx.config.subsystem
 local rand_bytes = utils.get_rand_bytes
 
@@ -122,7 +121,7 @@ if subsystem == "http" then
     end
 
     local ngx_ctx = ngx.ctx
-    local rewrite_start_ns = (ngx_ctx.KONG_REWRITE_START and ngx_ctx.KONG_REWRITE_START  * 1000) * 1000LL
+    local rewrite_start_ns = ngx_ctx.KONG_PROCESSING_START * 1000000LL
 
     local request_span = new_span(
       conf.service or "kong",
