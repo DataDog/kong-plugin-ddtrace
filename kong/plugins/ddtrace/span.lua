@@ -37,10 +37,12 @@ local function new(service, name, resource,
     assert(type(sampling_priority) == "number", "invalid sampling priority")
 
     if trace_id == nil then
+        -- a new trace
         trace_id = generate_span_id()
         span_id = trace_id
         parent_id = uint64_t(0)
     elseif span_id == nil then
+        -- a new span for an existing trace
         span_id = generate_span_id()
     end
 

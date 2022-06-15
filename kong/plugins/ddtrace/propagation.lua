@@ -9,7 +9,7 @@ ffi.cdef[[
 
 local function parse_uint64(str)
   if not str then
-      return nil, "unable to parse, valuie is nil"
+      return nil, "unable to parse, value is nil"
   end
   ffi.errno(0)
   local parsed_str = ffi.C.strtoull(str, nil, 10)
@@ -24,7 +24,7 @@ end
 local function extract(headers)
     local trace_id_value = headers["x-datadog-trace-id"]
     if not trace_id_value then
-        -- no trace ID, therefore no tracing
+        -- no trace ID, therefore no propagated trace
         return nil, nil, nil, nil, nil
     end
     local trace_id, err = parse_uint64(trace_id_value)
@@ -47,6 +47,8 @@ local function inject(span)
         return "unable to inject: span's trace_id is nil"
     end
     local set_header = kong.service.request.set_header
+    -- when concerted to a string, uint64_t values have ULL at the end of the string.
+    -- string.sub is used to remove the last 3 characters.
     local trace_id_str = tostring(span.trace_id)
     set_header("x-datadog-trace-id", string.sub(trace_id_str, 1, #trace_id_str - 3))
     local parent_id_str = tostring(span.span_id)

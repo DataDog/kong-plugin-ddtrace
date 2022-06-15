@@ -14,9 +14,10 @@ local DatadogTraceHandler = {
   PRIORITY = 100000,
 }
 
+-- This cache is keyed on Kong's config object. Setting the mode to weak ensures
+-- the keys will get garbage-collected when the config object's lifecycle is completed.
 local agent_writer_cache = setmetatable({}, { __mode = "k" })
 
-local math_random        = math.random
 local ngx_now            = ngx.now
 
 
@@ -89,17 +90,24 @@ local function timer_log(premature, agent_writer)
 end
 
 
-
 local initialize_request
 
 
-local function get_context(conf, ctx)
+local function get_datadog_context(conf, ctx)
   local datadog = ctx.datadog
   if not datadog then
     initialize_request(conf, ctx)
     datadog = ctx.datadog
   end
   return datadog
+end
+
+
+local function has_datadog_context(ctx)
+    if ctx.datadog then
+        return true
+    end
+    return false
 end
 
 
@@ -165,7 +173,7 @@ if subsystem == "http" then
 
 
   function DatadogTraceHandler:rewrite(conf) -- luacheck: ignore 212
-    local datadog = get_context(conf, kong.ctx.plugin)
+    local datadog = get_datadog_context(conf, kong.ctx.plugin)
     local ngx_ctx = ngx.ctx
     -- note: rewrite is logged on the request_span, not on the proxy span
     local rewrite_start_mu =
@@ -176,7 +184,7 @@ if subsystem == "http" then
 
 
   function DatadogTraceHandler:access(conf) -- luacheck: ignore 212
-    local datadog = get_context(conf, kong.ctx.plugin)
+    local datadog = get_datadog_context(conf, kong.ctx.plugin)
     local ngx_ctx = ngx.ctx
 
     local access_start =
@@ -189,7 +197,7 @@ if subsystem == "http" then
 
 
   function DatadogTraceHandler:header_filter(conf) -- luacheck: ignore 212
-    local datadog = get_context(conf, kong.ctx.plugin)
+    local datadog = get_datadog_context(conf, kong.ctx.plugin)
     local ngx_ctx = ngx.ctx
     local header_filter_start_mu =
       ngx_ctx.KONG_HEADER_FILTER_STARTED_AT and ngx_ctx.KONG_HEADER_FILTER_STARTED_AT * 1000
@@ -201,7 +209,7 @@ if subsystem == "http" then
 
 
   function DatadogTraceHandler:body_filter(conf) -- luacheck: ignore 212
-    local datadog = get_context(conf, kong.ctx.plugin)
+    local datadog = get_datadog_context(conf, kong.ctx.plugin)
 
     -- Finish header filter when body filter starts
     if not datadog.header_filter_finished then
@@ -213,52 +221,17 @@ if subsystem == "http" then
     end
   end
 
-elseif subsystem == "stream" then
-
-  initialize_request = function(conf, ctx)
-    local request_span = new_span(
-      "SERVER",
-      "stream",
-      ngx_req_start_time_mu(),
-      math_random() < conf.sample_ratio,
-      rand_bytes(conf.traceid_byte_count)
-    )
-    request_span.ip = kong.client.get_forwarded_ip()
-    request_span.port = kong.client.get_forwarded_port()
-
-    request_span:set_tag("lc", "kong")
-
-    local static_tags = conf.static_tags
-    if type(static_tags) == "table" then
-      for i = 1, #static_tags do
-        local tag = static_tags[i]
-        request_span:set_tag(tag.name, tag.value)
-      end
-    end
-
-    ctx.datadog = {
-      request_span = request_span,
-      proxy_span = nil,
-    }
-  end
-
-
-  function DatadogTraceHandler:preread(conf) -- luacheck: ignore 212
-    local datadog = get_context(conf, kong.ctx.plugin)
-    local ngx_ctx = ngx.ctx
-    local preread_start_mu =
-      ngx_ctx.KONG_PREREAD_START and ngx_ctx.KONG_PREREAD_START * 1000
-      or ngx_now_mu()
-
-    local proxy_span = get_or_add_proxy_span(datadog, preread_start_mu * 1000LL)
-    proxy_span:set_tag("kps", preread_start_mu)
-  end
+-- TODO: consider handling stream subsystem
 end
 
 
 function DatadogTraceHandler:log(conf) -- luacheck: ignore 212
+  if not has_datadog_context(kong.ctx.plugin) then
+      return
+  end
+
   local now_mu = ngx_now_mu()
-  local datadog = get_context(conf, kong.ctx.plugin)
+  local datadog = get_datadog_context(conf, kong.ctx.plugin)
   local ngx_ctx = ngx.ctx
   local request_span = datadog.request_span
   local proxy_span = get_or_add_proxy_span(datadog, now_mu * 1000LL)
@@ -298,13 +271,8 @@ function DatadogTraceHandler:log(conf) -- luacheck: ignore 212
     end
 
     proxy_span:set_tag("kbf", now_mu)
-
-  else
-    local preread_finish_mu =
-      ngx_ctx.KONG_PREREAD_ENDED_AT and ngx_ctx.KONG_PREREAD_ENDED_AT * 1000
-      or proxy_finish_mu
-    proxy_span:set_tag("kpf", preread_finish_mu)
   end
+  -- TODO: consider handling stream subsystem
 
   -- local balancer_data = ngx_ctx.balancer_data
   -- if balancer_data then
