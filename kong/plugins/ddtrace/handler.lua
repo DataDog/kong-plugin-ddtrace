@@ -122,6 +122,7 @@ if subsystem == "http" then
     end
 
     local method = req.get_method()
+    local path = req.get_path()
 
     if not sampling_priority then
       -- TODO: actual sampling decision based on rules, rates and fallback to agent rates
@@ -134,7 +135,7 @@ if subsystem == "http" then
     local request_span = new_span(
       conf.service or "kong",
       "kong.plugin.ddtrace",
-      req.get_method(),
+      method .. " " .. path, -- TODO: decrease cardinality of path value
       trace_id,
       nil,
       parent_id,
@@ -151,7 +152,7 @@ if subsystem == "http" then
     request_span:set_tag("lc", "kong")
     request_span:set_tag("http.method", method)
     request_span:set_tag("http.host", req.get_host())
-    request_span:set_tag("http.path", req.get_path())
+    request_span:set_tag("http.path", path)
     if protocol then
       request_span:set_tag("http.protocol", protocol)
     end
