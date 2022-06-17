@@ -307,7 +307,12 @@ function DatadogTraceHandler:log(conf) -- luacheck: ignore 212
   -- end
 
   if subsystem == "http" then
-    request_span:set_tag("http.status_code", kong.response.get_status())
+    local status_code = kong.response.get_status()
+    request_span:set_tag("http.status_code", status_code)
+    -- TODO: allow user to define additional status codes that are treated as errors.
+    if status_code >= 500 then
+        request_span:set_tag("error", true)
+    end
   end
   if ngx_ctx.authenticated_consumer then
     request_span:set_tag("kong.consumer", ngx_ctx.authenticated_consumer.id)
