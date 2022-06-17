@@ -47,6 +47,7 @@ local function new(service, name, resource,
     end
 
     return setmetatable({
+        type = "web",
         service = service,
         name = name,
         resource = resource,
