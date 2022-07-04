@@ -30,12 +30,12 @@ function agent_writer_methods:flush()
     return true
   end
 
-  kong.log.err("trace_segments: ", #self.trace_segments)
-  kong.log.err("trace_segments: ", dump(self.trace_segments))
+  -- kong.log.err("trace_segments: ", #self.trace_segments)
+  -- kong.log.err("trace_segments: ", dump(self.trace_segments))
 
   local payload = encoder.pack(self.trace_segments)
-  kong.log.err("payload length: ", #payload)
-  kong.log.err("hexdump: ", to_hex(payload))
+  -- kong.log.err("payload length: ", #payload)
+  -- kong.log.err("hexdump: ", to_hex(payload))
   self.trace_segments = {}
   self.trace_segments_n = 0
 
@@ -44,7 +44,7 @@ function agent_writer_methods:flush()
     return true
   end
 
-  kong.log.err("sending request")
+  -- kong.log.err("sending request")
 
   local httpc = resty_http.new()
   local res, err = httpc:request_uri(self.http_endpoint, {
