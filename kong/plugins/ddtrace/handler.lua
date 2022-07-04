@@ -3,6 +3,7 @@ local new_span = require "kong.plugins.ddtrace.span".new
 local utils = require "kong.tools.utils"
 local propagator = require "kong.plugins.ddtrace.propagation"
 
+local pcall = pcall
 local subsystem = ngx.config.subsystem
 local rand_bytes = utils.get_rand_bytes
 
@@ -133,7 +134,7 @@ if subsystem == "http" then
     local rewrite_start_ns = ngx_ctx.KONG_PROCESSING_START * 1000000LL
 
     local request_span = new_span(
-      conf.service or "kong",
+      conf and conf.service or "kong",
       "kong.plugin.ddtrace",
       method .. " " .. path, -- TODO: decrease cardinality of path value
       trace_id,
@@ -157,7 +158,7 @@ if subsystem == "http" then
       request_span:set_tag("http.protocol", protocol)
     end
 
-    local static_tags = conf.static_tags
+    local static_tags = conf and conf.static_tags or nil
     if type(static_tags) == "table" then
       for i = 1, #static_tags do
         local tag = static_tags[i]
@@ -173,7 +174,14 @@ if subsystem == "http" then
   end
 
 
-  function DatadogTraceHandler:rewrite(conf) -- luacheck: ignore 212
+  function DatadogTraceHandler:rewrite(conf)
+      local ok, message = pcall(function() self:rewrite_p(conf) end)
+      if not ok then
+          kong.log.err("tracing error in DatadogTraceHandler:rewrite: " .. message)
+      end
+  end
+
+  function DatadogTraceHandler:rewrite_p(conf) -- luacheck: ignore 212
     local datadog = get_datadog_context(conf, kong.ctx.plugin)
     local ngx_ctx = ngx.ctx
     -- note: rewrite is logged on the request_span, not on the proxy span
@@ -185,6 +193,13 @@ if subsystem == "http" then
 
 
   function DatadogTraceHandler:access(conf) -- luacheck: ignore 212
+      local ok, message = pcall(function() self:access_p(conf) end)
+      if not ok then
+          kong.log.err("tracing error in DatadogTraceHandler:access: " .. message)
+      end
+  end
+
+  function DatadogTraceHandler:access_p(conf) -- luacheck: ignore 212
     local datadog = get_datadog_context(conf, kong.ctx.plugin)
     local ngx_ctx = ngx.ctx
 
@@ -198,6 +213,13 @@ if subsystem == "http" then
 
 
   function DatadogTraceHandler:header_filter(conf) -- luacheck: ignore 212
+      local ok, message = pcall(function() self:header_filter_p(conf) end)
+      if not ok then
+          kong.log.err("tracing error in DatadogTraceHandler:header_filter: " .. message)
+      end
+  end
+
+  function DatadogTraceHandler:header_filter_p(conf) -- luacheck: ignore 212
     local datadog = get_datadog_context(conf, kong.ctx.plugin)
     local ngx_ctx = ngx.ctx
     local header_filter_start_mu =
@@ -210,6 +232,13 @@ if subsystem == "http" then
 
 
   function DatadogTraceHandler:body_filter(conf) -- luacheck: ignore 212
+      local ok, message = pcall(function() self:body_filter_p(conf) end)
+      if not ok then
+          kong.log.err("tracing error in DatadogTraceHandler:body_filter: " .. message)
+      end
+  end
+
+  function DatadogTraceHandler:body_filter_p(conf) -- luacheck: ignore 212
     local datadog = get_datadog_context(conf, kong.ctx.plugin)
 
     -- Finish header filter when body filter starts
@@ -227,6 +256,13 @@ end
 
 
 function DatadogTraceHandler:log(conf) -- luacheck: ignore 212
+    local ok, message = pcall(function() self:log_p(conf) end)
+    if not ok then
+        kong.log.err("tracing error in DatadogTraceHandler:log: " .. message)
+    end
+end
+
+function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
   if not has_datadog_context(kong.ctx.plugin) then
       return
   end
@@ -317,7 +353,7 @@ function DatadogTraceHandler:log(conf) -- luacheck: ignore 212
   if ngx_ctx.authenticated_consumer then
     request_span:set_tag("kong.consumer", ngx_ctx.authenticated_consumer.id)
   end
-  if conf.include_credential and ngx_ctx.authenticated_credential then
+  if conf and conf.include_credential and ngx_ctx.authenticated_credential then
     request_span:set_tag("kong.credential", ngx_ctx.authenticated_credential.id)
   end
   request_span:set_tag("kong.node.id", kong.node.get_id())
