@@ -1,11 +1,9 @@
 local new_trace_agent_writer = require "kong.plugins.ddtrace.agent_writer".new
 local new_span = require "kong.plugins.ddtrace.span".new
-local utils = require "kong.tools.utils"
 local propagator = require "kong.plugins.ddtrace.propagation"
 
 local pcall = pcall
 local subsystem = ngx.config.subsystem
-local rand_bytes = utils.get_rand_bytes
 
 local DatadogTraceHandler = {
   VERSION = "0.0.1",
@@ -25,12 +23,6 @@ local ngx_now            = ngx.now
 -- ngx.now in microseconds
 local function ngx_now_mu()
     return ngx_now() * 1000000
-end
-
-
--- ngx.req.start_time in nanoseconds
-local function ngx_req_start_time_mu()
-    return ngx.ctx.KONG_REWRITE_START * 1000000LL
 end
 
 

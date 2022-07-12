@@ -1,7 +1,5 @@
 local resty_http = require "resty.http"
-local to_hex = require "resty.string".to_hex
 local encoder = require "kong.plugins.ddtrace.msgpack_encode"
-local dump = require "pl.pretty".dump
 
 local agent_writer_methods = {}
 local agent_writer_mt = {
