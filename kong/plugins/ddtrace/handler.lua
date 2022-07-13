@@ -21,6 +21,14 @@ local agent_writer_cache = setmetatable({}, { __mode = "k" })
 local ngx_now            = ngx.now
 
 
+-- Memoize some data attahed to traces
+local ngx_worker_pid = ngx.worker.pid()
+local ngx_worker_id = ngx.worker.id()
+local ngx_worker_count = ngx.worker.count()
+-- local kong_cluster_id = kong.cluster.get_id()
+local kong_node_id = kong.node.get_id()
+
+
 -- ngx.now in microseconds
 local function ngx_now_mu()
     return ngx_now() * 1000000
@@ -158,22 +166,20 @@ if subsystem == "http" then
         -- Set nginx informational tags
         request_span:set_tag("nginx.version", ngx.config.nginx_version)
         request_span:set_tag("nginx.lua_version", ngx.config.ngx_lua_version)
-        if ngx.worker then
-            request_span:set_tag("nginx.worker_pid", ngx.worker.pid())
-            request_span:set_tag("nginx.worker_id", ngx.worker.id())
-            request_span:set_tag("nginx.worker_count", ngx.worker.count())
-        end
+        request_span:set_tag("nginx.worker_pid", ngx_worker_pid)
+        request_span:set_tag("nginx.worker_id", ngx_woerker_id)
+        request_span:set_tag("nginx.worker_count", ngx_worker_count)
 
         -- Set kong informational tags
         request_span:set_tag("kong.version", kong.version)
         request_span:set_tag("kong.pdk_version", kong.pdk_version)
+        request_span:set_tag("kong.node_id", kong_node_id)
+
         if kong.configuration then
             request_span:set_tag("kong.role", kong.configuration.role)
             request_span:set_tag("kong.nginx_daemon", kong.configuration.nginx_daemon)
+            request_span:set_tag("kong.database", kong.configuration.database)
         end
-
-
-
 
         local http_version = req.get_http_version()
         local protocol = http_version and 'HTTP/'..http_version or nil
@@ -347,8 +353,6 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
     if conf and conf.include_credential and ngx_ctx.authenticated_credential then
         request_span:set_tag("kong.credential", ngx_ctx.authenticated_credential.id)
     end
-    request_span:set_tag("kong.node.id", kong.node.get_id())
-
     tag_with_service_and_route(proxy_span)
 
     proxy_span:finish(proxy_finish_mu * 1000LL)
