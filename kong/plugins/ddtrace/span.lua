@@ -8,6 +8,7 @@ local ffi = require "ffi"
 local utils = require "kong.tools.utils"
 local rand_bytes = utils.get_rand_bytes
 local byte = string.byte
+local fmt = string.format
 
 local span_methods = {}
 local span_mt = {
@@ -58,6 +59,9 @@ local function new(service, name, resource,
         sampling_priority = sampling_priority,
         origin = origin,
         meta = {},
+        metrics = {
+            ["_sampling_priority_v1"] = sampling_priority,
+        }
     }, span_mt)
 end
 
@@ -88,6 +92,7 @@ end
 
 
 function span_methods:set_tag(key, value)
+    -- kong.log.err(fmt("set_tag: '%s': '%s' (%s)", key, value, type(value)))
     assert(type(key) == "string", "invalid tag key")
     if value ~= nil then -- Validate value
         local vt = type(value)

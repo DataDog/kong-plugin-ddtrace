@@ -4,6 +4,7 @@ local propagator = require "kong.plugins.ddtrace.propagation"
 
 local pcall = pcall
 local subsystem = ngx.config.subsystem
+local fmt = string.format
 
 local DatadogTraceHandler = {
     VERSION = "0.0.1",
@@ -120,9 +121,11 @@ if subsystem == "http" then
         local method = req.get_method()
         local path = req.get_path()
 
+        local set_psr_metrics = false
         if not sampling_priority then
             -- TODO: actual sampling decision based on rules, rates and fallback to agent rates
             sampling_priority = 1
+            set_psr_metrics = true
         end
 
         local ngx_ctx = ngx.ctx
@@ -138,6 +141,39 @@ if subsystem == "http" then
         rewrite_start_ns,
         sampling_priority,
         origin)
+
+        -- Add metrics
+        request_span.metrics["_dd.top_level"] = 1
+        if set_psr_metrics then
+            request_span.metrics["_dd.agent_psr"] = 1
+            request_span.metrics["_dd.rule_psr"] = 0
+            request_span.metrics["_dd.limit_psr"] = 0
+        end
+
+        -- Set datadog tags (currently only 'env')
+        if conf and conf.environment then
+            request_span:set_tag("env", conf.environment)
+        end
+
+        -- Set nginx informational tags
+        request_span:set_tag("nginx.version", ngx.config.nginx_version)
+        request_span:set_tag("nginx.lua_version", ngx.config.ngx_lua_version)
+        if ngx.worker then
+            request_span:set_tag("nginx.worker_pid", ngx.worker.pid())
+            request_span:set_tag("nginx.worker_id", ngx.worker.id())
+            request_span:set_tag("nginx.worker_count", ngx.worker.count())
+        end
+
+        -- Set kong informational tags
+        request_span:set_tag("kong.version", kong.version)
+        request_span:set_tag("kong.pdk_version", kong.pdk_version)
+        if kong.configuration then
+            request_span:set_tag("kong.role", kong.configuration.role)
+            request_span:set_tag("kong.nginx_daemon", kong.configuration.nginx_daemon)
+        end
+
+
+
 
         local http_version = req.get_http_version()
         local protocol = http_version and 'HTTP/'..http_version or nil
@@ -233,11 +269,7 @@ if subsystem == "http" then
 
         -- Finish header filter when body filter starts
         if not datadog.header_filter_finished then
-            local now_mu = ngx_now_mu()
-
-            datadog.proxy_span:set_tag("khf", now_mu)
             datadog.header_filter_finished = true
-            datadog.proxy_span:set_tag("kbs", now_mu)
         end
     end
 
@@ -271,60 +303,35 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
     ngx_ctx.KONG_LOG_START and ngx_ctx.KONG_LOG_START * 1000
     or now_mu
 
-    if subsystem == "http" then
-        -- annotate access_start here instead of in the access phase
-        -- because the plugin access phase is skipped when dealing with
-        -- requests which are not matched by any route
-        -- but we still want to know when the access phase "started"
-        local access_start_mu =
-        ngx_ctx.KONG_ACCESS_START and ngx_ctx.KONG_ACCESS_START * 1000
-        or proxy_span.timestamp
-        proxy_span:set_tag("kas", access_start_mu)
-
-        local access_finish_mu =
-        ngx_ctx.KONG_ACCESS_ENDED_AT and ngx_ctx.KONG_ACCESS_ENDED_AT * 1000
-        or proxy_finish_mu
-        proxy_span:set_tag("kaf", access_finish_mu)
-
-        if not datadog.header_filter_finished then
-            proxy_span:set_tag("khf", now_mu)
-            datadog.header_filter_finished = true
-        end
-
-        proxy_span:set_tag("kbf", now_mu)
-    end
     -- TODO: consider handling stream subsystem
 
-    -- local balancer_data = ngx_ctx.balancer_data
-    -- if balancer_data then
-    --   local balancer_tries = balancer_data.tries
-    --   for i = 1, balancer_data.try_count do
-    --     local try = balancer_tries[i]
-    --     local resource = fmt("balancer try %d", i)
-    --     local span = request_span:new_child(request_span.name, resource, try.balancer_start * 1000LL)
-    --     span.ip = try.ip
-    --     span.port = try.port
+    local balancer_data = ngx_ctx.balancer_data
+    if balancer_data then
+        local balancer_tries = balancer_data.tries
+        local try_count = balancer_data.try_count
 
-    --     span:set_tag("kong.balancer.try", i)
-    --     if i < balancer_data.try_count then
-    --       span:set_tag("error", true)
-    --       span:set_tag("kong.balancer.state", try.state)
-    --       span:set_tag("http.status_code", try.code)
-    --     end
+        proxy_span:set_tag("peer.hostname", balancer_data.hostname)
+        proxy_span:set_tag("peer.ip", balancer_data.ip)
+        proxy_span:set_tag("peer.port", balancer_data.port)
+        proxy_span:set_tag("kong.balancer.tries", try_count)
 
-    --     tag_with_service_and_route(span)
+        for i = 1, try_count do
+            local tag_prefix = fmt("kong.balancer.try-%d.", i)
+            local try = balancer_tries[i]
+            if i < try_count then
+                proxy_span:set_tag(tag_prefix .. "error", true)
+                proxy_span:set_tag(tag_prefix .. "state", try.state)
+                proxy_span:set_tag(tag_prefix .. "status_code", try.code)
+            end
+            if try.balancer_latency then
+                proxy_span:set_tag(tag_prefix .. "latency", try.balancer_latency)
+            end
+        end
 
-    --     if try.balancer_latency ~= nil then
-    --       span:finish((try.balancer_start + try.balancer_latency) * 1000LL)
-    --     else
-    --       span:finish(now_mu * 1000LL)
-    --     end
-    --     agent_writer:add(span)
-    --   end
-    --   proxy_span:set_tag("peer.hostname", balancer_data.hostname) -- could be nil
-    --   proxy_span.ip   = balancer_data.ip
-    --   proxy_span.port = balancer_data.port
-    -- end
+        proxy_span:set_tag("peer.hostname", balancer_data.hostname)
+        proxy_span:set_tag("peer.ip", balancer_data.ip)
+        proxy_span:set_tag("peer.port", balancer_data.port)
+    end
 
     if subsystem == "http" then
         local status_code = kong.response.get_status()
