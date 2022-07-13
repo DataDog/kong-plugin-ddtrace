@@ -61,11 +61,8 @@ At this stage, there are no built-in unit or integration tests. These will be ad
 - The request span's start time appears incorrect
 - There are no sampling options - all traces are sampled
 - Span names could be improved
-- Top-level spans are missing metrics that affect trace ingestion
 - The v0.4 API is being used to send to the agent - an update will use v0.7
 - More details should be collected for errors
-- Only request and proxy spans are being collected - balancer spans should be added
-- The timing data / annotations get rendered as floating point numbers with exponents
 - A high resolution timer option should be added (eg: using `clock_gettime` instead of `ngx.now()`)
 
 ## Acknowledgements
