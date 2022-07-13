@@ -11,7 +11,7 @@ local byte = string.byte
 
 local span_methods = {}
 local span_mt = {
-  __index = span_methods,
+    __index = span_methods,
 }
 
 local uint64_t = ffi.typeof("uint64_t")
@@ -26,8 +26,8 @@ local function generate_span_id()
 end
 
 local function new(service, name, resource,
-                   trace_id, span_id, parent_id,
-                   start, sampling_priority, origin)
+    trace_id, span_id, parent_id,
+    start, sampling_priority, origin)
     assert(type(name) == "string" and name ~= "", "invalid span name")
     assert(type(resource) == "string" and resource ~= "", "invalid span resource")
     assert(trace_id == nil or ffi.istype(uint64_t, trace_id), "invalid trace id")
@@ -88,32 +88,32 @@ end
 
 
 function span_methods:set_tag(key, value)
-  assert(type(key) == "string", "invalid tag key")
-  if value ~= nil then -- Validate value
-    local vt = type(value)
-    assert(vt == "string" or vt == "number" or vt == "boolean",
-      "invalid tag value (expected string, number, boolean or nil)")
-  end
-  local meta = self.meta
-  if meta then
-    meta[key] = tostring(value)
-  elseif value ~= nil then
-    meta = {
-      [key] = tostring(value)
-    }
-    self.meta = meta
-  end
-  return true
+    assert(type(key) == "string", "invalid tag key")
+    if value ~= nil then -- Validate value
+        local vt = type(value)
+        assert(vt == "string" or vt == "number" or vt == "boolean",
+        "invalid tag value (expected string, number, boolean or nil)")
+    end
+    local meta = self.meta
+    if meta then
+        meta[key] = tostring(value)
+    elseif value ~= nil then
+        meta = {
+            [key] = tostring(value)
+        }
+        self.meta = meta
+    end
+    return true
 end
 
 
 function span_methods:each_tag()
-  local tags = self.tags
-  if tags == nil then return function() end end
-  return next, tags
+    local tags = self.tags
+    if tags == nil then return function() end end
+    return next, tags
 end
 
 
 return {
-  new = new,
+    new = new,
 }

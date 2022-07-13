@@ -2,23 +2,22 @@
 --
 local ffi = require "ffi"
 ffi.cdef[[
-  int sprintf(char *str, const char *format, ...);
-  unsigned long long int strtoull(const char *nptr, char **endptr, int base);
+unsigned long long int strtoull(const char *nptr, char **endptr, int base);
 ]]
 
 
 local function parse_uint64(str)
-  if not str then
-      return nil, "unable to parse, value is nil"
-  end
-  ffi.errno(0)
-  local parsed_str = ffi.C.strtoull(str, nil, 10)
-  local err = ffi.errno()
-  if err ~= 0 then
-    return nil, "unable to parse '" .. str .. "' as 64-bit number, errno=" .. err
-  end
-  -- TODO: check the entire string was consumed, instead of partially decoded
-  return parsed_str, nil
+    if not str then
+        return nil, "unable to parse, value is nil"
+    end
+    ffi.errno(0)
+    local parsed_str = ffi.C.strtoull(str, nil, 10)
+    local err = ffi.errno()
+    if err ~= 0 then
+        return nil, "unable to parse '" .. str .. "' as 64-bit number, errno=" .. err
+    end
+    -- TODO: check the entire string was consumed, instead of partially decoded
+    return parsed_str, nil
 end
 
 local function extract(headers)
