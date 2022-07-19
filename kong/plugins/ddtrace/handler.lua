@@ -140,7 +140,7 @@ if subsystem == "http" then
         local rewrite_start_ns = ngx_ctx.KONG_PROCESSING_START * 1000000LL
 
         local request_span = new_span(
-        conf and conf.service or "kong",
+        conf and conf.service_name or "kong",
         "kong.plugin.ddtrace",
         method .. " " .. path, -- TODO: decrease cardinality of path value
         trace_id,
