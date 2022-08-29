@@ -28,6 +28,72 @@ curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --
 
 The `agent_endpoint` will need configuring to match the address of the datadog agent.
 
+## Configuration
+
+This plugin supports a number of configuration options. These can be supplied when enabling the plugin by providing additional `--data` options to the `curl` request.
+The option is prefixed by `config`, eg: to configure the service name, the `curl` option will be represented as `--data 'config.service_name=your-preferred-name'`.
+
+### Service Name
+
+The service name represents the application or component that is producing traces. All traces created by this plugin will use the configured service name.
+If not configured, a default value of `kong` will be used.
+
+`--data 'config.service_name=your-preferred-name'`
+
+### Environment
+
+The environment is a larger grouping of related services, such as `prod`, `staging` or `dev`.
+If not configured, it will not be sent, and traces will be categorized as `env:none`.
+
+`--data 'config.environment=prod`
+
+### Resource Name Rules
+
+The resource name represents a common access method and resource being used by a service. For Kong, this is typically the HTTP request method, and part of the URI.
+
+By default, the full URI will be used. This can lead to a high number of unique values (cardinality), or exposing IDs and tokens contained in the URI.
+To avoid this, resource name rules are used to match path of the URI, and replace the resource name with either the matched part or a user-configured replacement value.
+
+The required `match` field is a regular expression, implicitly anchored to the beginning of the URI value.
+
+The optional `replacement` field is used to provide an updated value for the resource name.
+
+`--data 'config.resource_name_rule[1].match=/api/v1/users'`
+
+`--data 'config.resource_name_rule[2].match=/api/v1/features/xyz/enabled' --data 'config.resource_name_rule[2].replacement=/api/v1/features/?/enabled'`
+
+The first matching rule in a list of rules is used, and any remaining rules are ignored.
+So if a rule matching `/api` exists before a more-specific match like `/api/v1/users`, the `/api` rule will be used.
+
+Example setup:
+```
+--data 'config.resource_name_rule[1].match=/api/v1/users'
+--data 'config.resource_name_rule[2].match=/api/v1/features/\w*/enabled' --data 'config.resource_name_rule[2].replacement=/api/v1/features/?/enabled'
+--data 'config.resource_name_rule[3].match=/reset_password/' --data 'config.resource_name_rule[3].replacement=PASSWORD_RESET'
+--data 'config.resource_name_rule[4].match=/([^/]*)/' --data 'config.resource_name_rule[4].replacement=/$1/?
+```
+
+Example outcomes:
+| HTTP Method | Request URI | Matches Rule | Final Resource Name |
+| ----------- | ----------- | ------------ | ------------------- |
+| GET | /api/v1/users/1234/profile | 1 | GET /api/v1/users |
+| GET | /api/v1/features/abc/enabled | 2 | GET /api/v1/features/?/enabled |
+| GET | /api/v1/features/xyz/enabled | 2 | GET /api/v1/features/?/enabled |
+| POST | /reset_password/D6T6wVRw | 3 | POST PASSWORD_RESET |
+| GET | /static/site.js | 4 | GET /static/? |
+| GET | /favicon.ico | none | GET /favicon.ico |
+
+
+
+**NOTES**
+
+A plus (+) symbol in regular expressions is often used to match "one-or-more", but when configurig this in a resource name rule, it should be encoded. This is because it overlaps with URL encoding. Without encoding it, the URL encoding performed by curl or Kong will replace a plus with a space character. `%2B` should be used instead of the `+` character to avoid this issue.
+
+When configuring a Kong plugin using `curl`, the `--data` values should be wrapped in single-quotes to avoid expansion of special characters by the shell.
+
+Additional details about regular expressions can be found in OpenResty documentation for [ngx.re.match](https://github.com/openresty/lua-nginx-module#ngxrematch) and [ngx.re.sub
+](https://github.com/openresty/lua-nginx-module#ngxresub) which are used to apply the resource name rules.
+
 ## Testing
 
 Testing can be performed using `pongo`.

@@ -2,7 +2,7 @@ version: '3.5'
 
 services:
   datadog-agent:
-    image: 'datadog/agent'
+    image: gcr.io/datadoghq/agent:latest
     volumes:
     - '/var/run/docker.sock:/var/run/docker.sock:ro'
     - '/proc/:/host/proc/:ro'

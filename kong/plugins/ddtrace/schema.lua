@@ -40,6 +40,14 @@ local validate_static_tags = function(tags)
     return true
 end
 
+local resource_name_rule = Schema.define {
+    type = "record",
+    fields = {
+        { match = { type = "string", required = true, is_regex = true } },
+        { replacement = { type = "string" } },
+    },
+}
+
 return {
     name = "ddtrace",
     fields = {
@@ -48,9 +56,10 @@ return {
             fields = {
                 { service_name = { type = "string", required = true, default = "kong" } },
                 { environment = { type = "string", default = "none" } },
-                { agent_endpoint = typedefs.url },
+                { agent_endpoint = typedefs.url({ default = "http://localhost:8126/v0.4/traces" }) },
                 { static_tags = { type = "array", elements = static_tag,
                 custom_validator = validate_static_tags } },
+                { resource_name_rule = { type = "array", elements = resource_name_rule } },
             },
         }, },
     },

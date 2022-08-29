@@ -1,3 +1,4 @@
+
 local new_trace_agent_writer = require "kong.plugins.ddtrace.agent_writer".new
 local new_span = require "kong.plugins.ddtrace.span".new
 local propagator = require "kong.plugins.ddtrace.propagation"
@@ -5,6 +6,8 @@ local propagator = require "kong.plugins.ddtrace.propagation"
 local pcall = pcall
 local subsystem = ngx.config.subsystem
 local fmt = string.format
+local strsub = string.sub
+local regex = ngx.re
 
 local DatadogTraceHandler = {
     VERSION = "0.0.1",
@@ -118,6 +121,37 @@ local function has_datadog_context(ctx)
 end
 
 
+-- apply resource_name_rules to the provided URI
+-- and return a replacement value.
+local function apply_resource_name_rules(uri, rules)
+    if #rules == 0 then
+        return uri
+    end
+    for _, rule in ipairs(rules) do
+        -- try to match URI to rule's expression
+        local from, to, err = regex.find(uri, rule.match, "ajo")
+        if from then
+            local matched_uri = strsub(uri, from, to)
+            -- if we have a match but no replacement, return the matched value
+            if not rule.replacement then
+                -- kong.log.err("match for " .. rule.match .. " but no replacement, returning " .. matched_uri)
+                return matched_uri
+            end
+            local replaced_uri, _, err = regex.sub(matched_uri, rule.match, rule.replacement, "ajo")
+            if replaced_uri then
+                -- kong.log.err("match for " .. rule.match .. " with replacement " .. rule.replacement .. ", returning " .. replaced_uri)
+                return replaced_uri
+            end
+        -- else
+            -- kong.log.err("no match for " .. rule.match)
+        end
+    end
+
+    -- no rules matched or errors occured, just return the original value
+    return uri
+end
+
+
 if subsystem == "http" then
     initialize_request = function(conf, ctx)
         local req = kong.request
@@ -142,7 +176,7 @@ if subsystem == "http" then
         local request_span = new_span(
         conf and conf.service_name or "kong",
         "kong.plugin.ddtrace",
-        method .. " " .. path, -- TODO: decrease cardinality of path value
+        method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule), -- TODO: decrease cardinality of path value
         trace_id,
         nil,
         parent_id,
