@@ -392,11 +392,6 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
     proxy_span:finish(proxy_finish_mu * 1000LL)
     request_span:finish(request_finish_mu * 1000LL)
     agent_writer:add({request_span, proxy_span})
-
-    local ok, err = ngx.timer.at(0, timer_log, agent_writer)
-    if not ok then
-        kong.log.err("failed to create timer: ", err)
-    end
 end
 
 

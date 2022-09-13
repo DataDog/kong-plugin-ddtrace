@@ -8,11 +8,24 @@ local agent_writer_mt = {
 
 
 local function new(http_endpoint)
-    return setmetatable({
+    local self = setmetatable({
         http_endpoint = http_endpoint,
         trace_segments = {},
         trace_segments_n = 0,
     }, agent_writer_mt)
+    local timer_handle, err = ngx.timer.every(2.0, function()
+        local ok, err = self:flush()
+        if not ok then
+            kong.log.err("agent_writer error ", err)
+            return
+        end
+    end)
+
+    if not timer_handle then
+        kong.log.err("failed to create timer: " .. err)
+        return self
+    end
+    return self
 end
 
 
