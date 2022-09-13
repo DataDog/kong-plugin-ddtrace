@@ -124,7 +124,7 @@ end
 -- apply resource_name_rules to the provided URI
 -- and return a replacement value.
 local function apply_resource_name_rules(uri, rules)
-    if #rules == 0 then
+    if not rules or #rules == 0 then
         return uri
     end
     for _, rule in ipairs(rules) do
