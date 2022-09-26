@@ -6,6 +6,17 @@ local agent_writer_mt = {
     __index = agent_writer_methods,
 }
 
+-- this function is used to flush the finished spans, so they
+-- are sent to the Datadog agent. When it finishes, it reschedules the 
+-- next invocation. This is intended to work around an issue when
+-- ngx.timer.every is used
+local function timer_function(premature, agent_writer)
+    local ok, err = agent_writer:flush()
+    if not ok then
+        kong.log.err("agent_writer error ", err)
+    end
+    ngx.timer.at(2.0, timer_function, agent_writer)
+end
 
 local function new(http_endpoint)
     local self = setmetatable({
@@ -13,18 +24,7 @@ local function new(http_endpoint)
         trace_segments = {},
         trace_segments_n = 0,
     }, agent_writer_mt)
-    local timer_handle, err = ngx.timer.every(2.0, function()
-        local ok, err = self:flush()
-        if not ok then
-            kong.log.err("agent_writer error ", err)
-            return
-        end
-    end)
-
-    if not timer_handle then
-        kong.log.err("failed to create timer: " .. err)
-        return self
-    end
+    ngx.timer.at(2.0, timer_function, self)
     return self
 end
 

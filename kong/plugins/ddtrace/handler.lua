@@ -24,7 +24,7 @@ local agent_writer_cache = setmetatable({}, { __mode = "k" })
 local ngx_now            = ngx.now
 
 
--- Memoize some data attahed to traces
+-- Memoize some data attached to traces
 local ngx_worker_pid = ngx.worker.pid()
 local ngx_worker_id = ngx.worker.id()
 local ngx_worker_count = ngx.worker.count()
