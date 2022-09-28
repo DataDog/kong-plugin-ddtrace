@@ -20,6 +20,16 @@ local DatadogTraceHandler = {
 -- This cache is keyed on Kong's config object. Setting the mode to weak ensures
 -- the keys will get garbage-collected when the config object's lifecycle is completed.
 local agent_writer_cache = setmetatable({}, { __mode = "k" })
+local function flush_agent_writers()
+    for conf, agent_writer in pairs(agent_writer_cache) do
+        agent_writer:flush()
+    end
+end
+
+-- This timer runs in the background to flush traces for all instances of the plugin.
+-- Because of the way timers work in lua, this can only be initialized when there's an
+-- active request. This gets initialized on the first request this plugin handles.
+local agent_writer_timer
 
 local ngx_now            = ngx.now
 
@@ -150,7 +160,6 @@ local function apply_resource_name_rules(uri, rules)
     -- no rules matched or errors occured, just return the original value
     return uri
 end
-
 
 if subsystem == "http" then
     initialize_request = function(conf, ctx)
@@ -327,6 +336,11 @@ end
 function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
     if not has_datadog_context(kong.ctx.plugin) then
         return
+    end
+
+    -- one-time setup of the timer, only on the first request
+    if not agent_writer_timer then
+        agent_writer_timer = ngx.timer.every(2.0, flush_agent_writers)
     end
 
     local now_mu = ngx_now_mu()
