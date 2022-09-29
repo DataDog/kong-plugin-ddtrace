@@ -22,7 +22,10 @@ local DatadogTraceHandler = {
 local agent_writer_cache = setmetatable({}, { __mode = "k" })
 local function flush_agent_writers()
     for conf, agent_writer in pairs(agent_writer_cache) do
-        agent_writer:flush()
+        local ok, err = agent_writer:flush()
+        if not ok then
+            kong.log.err("agent_writer error ", err)
+        end
     end
 end
 
