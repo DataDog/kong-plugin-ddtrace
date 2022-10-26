@@ -137,14 +137,12 @@ end
 -- apply resource_name_rules to the provided URI
 -- and return a replacement value.
 local function apply_resource_name_rules(uri, rules)
-    kong.log.err("applying resource name rules")
     if rules then
         for _, rule in ipairs(rules) do
             -- try to match URI to rule's expression
             local from, to, err = regex.find(uri, rule.match, "ajo")
             if from then
                 local matched_uri = strsub(uri, from, to)
-                kong.log.err("matched " .. matched_uri)
                 -- if we have a match but no replacement, return the matched value
                 if not rule.replacement then
                     return matched_uri
@@ -161,18 +159,15 @@ local function apply_resource_name_rules(uri, rules)
     -- decompose path into fragments, and replace parts with excessive digits with ?,
     -- except if it looks like a version identifier (v1, v2 etc) or if it is
     -- a status / health check
-    kong.log.err("applying default resource name rules")
     local fragments = {}
     local check = false
     local it, err = regex.gmatch(uri, "(/[^/]*)", "jo")
     if not it then
-        kong.log.err("error applying default rules to uri '" .. uri "': " .. err)
         return uri
     end
     while true do
         local fragment_table = it()
         if not fragment_table then
-            kong.log.err("giving up")
             break
         end
         -- the iterator returns a table, but it should only have one item in it
@@ -196,7 +191,6 @@ local function apply_resource_name_rules(uri, rules)
         ::continue::
     end
         
-    kong.log.err("fragments rebuilt:" .. table.concat(fragments))
     return table.concat(fragments)
 end
 
@@ -231,7 +225,6 @@ if subsystem == "http" then
         rewrite_start_ns,
         sampling_priority,
         origin)
-        kong.log.err("creating trace for location " .. ngx.var.location .. " with uri " .. path)
 
         -- Add metrics
         request_span.metrics["_dd.top_level"] = 1
