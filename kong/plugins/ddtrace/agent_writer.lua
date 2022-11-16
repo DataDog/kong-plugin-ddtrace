@@ -6,9 +6,10 @@ local agent_writer_mt = {
     __index = agent_writer_methods,
 }
 
-local function new(http_endpoint)
+local function new(http_endpoint, sampler)
     return setmetatable({
         http_endpoint = http_endpoint,
+        sampler = sampler,
         trace_segments = {},
         trace_segments_n = 0,
     }, agent_writer_mt)
@@ -57,6 +58,8 @@ function agent_writer_methods:flush()
     elseif res.status < 200 or res.status >= 300 then
         return nil, "failed: " .. res.status .. " " .. res.reason
     end
+    self.sampler:update_sampling_rates(res.body)
+
     return true
 end
 

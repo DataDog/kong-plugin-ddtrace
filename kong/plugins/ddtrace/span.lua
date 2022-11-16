@@ -35,7 +35,7 @@ local function new(service, name, resource,
     assert(span_id == nil or ffi.istype(uint64_t, span_id), "invalid span id")
     assert(parent_id == nil or ffi.istype(uint64_t, parent_id), "invalid parent id")
     assert(ffi.istype(int64_t, start) and start >= 0, "invalid span start timestamp")
-    assert(type(sampling_priority) == "number", "invalid sampling priority")
+    assert(sampling_priority == nil or type(sampling_priority) == "number", "invalid sampling priority")
 
     if trace_id == nil then
         -- a new trace
@@ -63,6 +63,12 @@ local function new(service, name, resource,
             ["_sampling_priority_v1"] = sampling_priority,
         }
     }, span_mt)
+end
+
+
+function span_methods:set_sampling_priority(sampling_priority)
+    self.sampling_priority = sampling_priority
+    self.metrics["_sampling_priority_v1"] = sampling_priority
 end
 
 

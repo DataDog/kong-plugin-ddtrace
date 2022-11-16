@@ -1,4 +1,4 @@
-
+local new_sampler = require "kong.plugins.ddtrace.sampler".new
 local new_trace_agent_writer = require "kong.plugins.ddtrace.agent_writer".new
 local new_span = require "kong.plugins.ddtrace.span".new
 local propagator = require "kong.plugins.ddtrace.propagation"
@@ -33,6 +33,7 @@ end
 -- Because of the way timers work in lua, this can only be initialized when there's an
 -- active request. This gets initialized on the first request this plugin handles.
 local agent_writer_timer
+local sampler
 
 local ngx_now            = ngx.now
 
@@ -53,7 +54,7 @@ end
 
 local function get_agent_writer(conf)
     if agent_writer_cache[conf] == nil then
-        agent_writer_cache[conf] = new_trace_agent_writer(conf.agent_endpoint)
+        agent_writer_cache[conf] = new_trace_agent_writer(conf.agent_endpoint, sampler)
     end
     return agent_writer_cache[conf]
 end
@@ -196,6 +197,14 @@ end
 
 if subsystem == "http" then
     initialize_request = function(conf, ctx)
+        -- one-time setup of the timer and sampler, only on the first request
+        if not agent_writer_timer then
+            agent_writer_timer = ngx.timer.every(2.0, flush_agent_writers)
+        end
+        if not sampler then
+            sampler = new_sampler(nil)
+        end
+
         local req = kong.request
         local req_headers = req.get_headers()
 
@@ -204,13 +213,6 @@ if subsystem == "http" then
 
         local method = req.get_method()
         local path = req.get_path()
-
-        local set_psr_metrics = false
-        if not sampling_priority then
-            -- TODO: actual sampling decision based on rules, rates and fallback to agent rates
-            sampling_priority = 1
-            set_psr_metrics = true
-        end
 
         local ngx_ctx = ngx.ctx
         local rewrite_start_ns = ngx_ctx.KONG_PROCESSING_START * 1000000LL
@@ -225,6 +227,17 @@ if subsystem == "http" then
         rewrite_start_ns,
         sampling_priority,
         origin)
+
+
+        -- TODO: decide about deferring sampling decision until injection or not
+        if not sampling_priority then
+            local sampled = sampler:sample(request_span)
+            if sampled then
+                request_span:set_sampling_priority(1)
+            else
+                request_span:set_sampling_priority(0)
+            end
+        end
 
         -- Add metrics
         request_span.metrics["_dd.top_level"] = 1
@@ -369,11 +382,6 @@ end
 function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
     if not has_datadog_context(kong.ctx.plugin) then
         return
-    end
-
-    -- one-time setup of the timer, only on the first request
-    if not agent_writer_timer then
-        agent_writer_timer = ngx.timer.every(2.0, flush_agent_writers)
     end
 
     local now_mu = ngx_now_mu()
