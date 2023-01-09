@@ -47,6 +47,18 @@ If not configured, it will not be sent, and traces will be categorized as `env:n
 
 `--data 'config.environment=prod`
 
+### Sampling Controls
+
+Sampling of traces is required in environments with high traffic load to reduce the amount of trace data produced and ingested by Datadog.
+
+An initial sampling amount of 100 traces-per-second is applied, with a default rate of 1.0 (100%).
+When traces-per-second has been exceeded, sample rates provided by the datadog agent are used instead.
+These rates are updated dynamically to values between 0.0 (0%) and 1.0 (100%).
+
+The value of `initial_samples_per_second` and `initial_sample_rate` can be configured to increase or decrease the base amount of traces that are sampled.
+
+-- data 'config.initial_samples_per_second=100' --data 'config.initial_sample_rate=1.0'
+
 ### Resource Name Rules
 
 The resource name represents a common access method and resource being used by a service. For Kong, this is typically the HTTP request method, and part of the URI.
