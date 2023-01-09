@@ -202,7 +202,9 @@ if subsystem == "http" then
             agent_writer_timer = ngx.timer.every(2.0, flush_agent_writers)
         end
         if not sampler then
-            sampler = new_sampler(nil)
+            -- each worker gets a chunk of the overall samples_per_second value as their per-second limit
+            -- though it is rounded up. This can be more-precisely allocated if necessary
+            sampler = new_sampler(math.ceil(conf.initial_samples_per_second / ngx_worker_count), conf.initial_sample_rate)
         end
 
         local req = kong.request
@@ -228,6 +230,10 @@ if subsystem == "http" then
         sampling_priority,
         origin)
 
+        -- Set datadog tags (currently only 'env')
+        if conf and conf.environment then
+            request_span:set_tag("env", conf.environment)
+        end
 
         -- TODO: decide about deferring sampling decision until injection or not
         if not sampling_priority then
@@ -247,16 +253,11 @@ if subsystem == "http" then
             request_span.metrics["_dd.limit_psr"] = 0
         end
 
-        -- Set datadog tags (currently only 'env')
-        if conf and conf.environment then
-            request_span:set_tag("env", conf.environment)
-        end
-
         -- Set nginx informational tags
         request_span:set_tag("nginx.version", ngx.config.nginx_version)
         request_span:set_tag("nginx.lua_version", ngx.config.ngx_lua_version)
         request_span:set_tag("nginx.worker_pid", ngx_worker_pid)
-        request_span:set_tag("nginx.worker_id", ngx_woerker_id)
+        request_span:set_tag("nginx.worker_id", ngx_worker_id)
         request_span:set_tag("nginx.worker_count", ngx_worker_count)
 
         -- Set kong informational tags

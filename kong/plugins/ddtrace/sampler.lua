@@ -9,38 +9,12 @@ and a rate-based sampler using rates provided by the Datadog agent.
 local cjson = require "cjson.safe"
 cjson.decode_array_with_array_mt = true
 local ffi = require "ffi"
+local uint64_t = ffi.typeof("uint64_t")
 
 local sampler_methods = {}
 local sampler_mt = {
     __index = sampler_methods,
 }
-
-
-local default_sampling_rate_key = "service:,env:"
-local default_sampling_rate_value = {
-    rate = 1.0,
-    max_id = 0xFFFFFFFFFFFFFFFFULL,
-}
-
-function new(rules)
-    return setmetatable({
-        agent_sample_rates = {
-            [default_sampling_rate_key] = default_sampling_rate_value,
-        },
-        rules = rules,
-    }, sampler_mt)
-end
-
--- returns whether the span is sampled based on the max_id
-local function sampling_decision(span, max_id)
-    -- not-ideal knuth hashing of trace ids
-    local hashed_trace_id = span.trace_id * 1111111111111111111ULL
-    -- kong.log.err("sampling decision: " .. tostring(span.trace_id) .. " hashed " .. tostring(hashed_trace_id) .. " decision " .. tostring(hashed_trace_id <= max_id))
-    if hashed_trace_id > max_id then
-        return false
-    end
-    return true
-end
 
 -- returns a 64-bit value representing the max id that a hashed trace id can
 -- have to be sampled.
@@ -70,29 +44,113 @@ local function max_id_for_rate(rate)
 end
 
 
+-- these values are used for agent-based sampling rates
+-- which is applied when the initial sampling rates are exhausted
+local default_sampling_rate_key = "service:,env:"
+local default_sampling_rate_value = {
+    rate = 1.0,
+    max_id = max_id_for_rate(1.0),
+}
+
+function new(samples_per_second, sample_rate)
+    -- pre-calculate the counters used for initial sampling
+    local sampled_traces = {}
+    local sampling_limits = {}
+
+    local samples_per_second_uint = samples_per_second * 1ULL
+    local samples_per_decisecond = samples_per_second_uint / 10
+    local remainder = samples_per_second_uint % 10
+    for i = 0,9 do
+        sampled_traces[i] = 0
+        if remainder > i then
+            sampling_limits[i] = tonumber(samples_per_decisecond + 1)
+        else
+            sampling_limits[i] = tonumber(samples_per_decisecond)
+        end
+    end
+
+    return setmetatable({
+        samples_per_second = samples_per_second,
+        sample_rate = sample_rate,
+        sample_rate_max_id = max_id_for_rate(sample_rate),
+        sampled_traces = sampled_traces,
+        sampling_limits = sampling_limits,
+        spans_counted = 0,
+        effective_rate = sample_rate, -- this is updated when the time rolls over
+        last_sample_interval = nil,
+        agent_sample_rates = {
+            [default_sampling_rate_key] = default_sampling_rate_value,
+        },
+    }, sampler_mt)
+end
+
+-- returns whether the span is sampled based on the max_id
+local function sampling_decision(span, max_id)
+    -- not-ideal knuth hashing of trace ids
+    local hashed_trace_id = span.trace_id * 1111111111111111111ULL
+    if hashed_trace_id > max_id then
+        return false
+    end
+    return true
+end
+
     
 
 
 
 function sampler_methods:sample(span)
-    -- apply sampling rules, if present
-    --
-    --
-    -- no rules were applied, apply a default rule
-    --
-    --
-    --
-    -- default rule not applied, use agent sampling rates
+    -- check for rollover to new sampling interval
+    local span_start_interval = span.start / 1000000000ULL
+    if self.last_sample_interval then
+        if span_start_interval > self.last_sample_interval then
+            if self.sample_rate > 0.0  and self.spans_counted > 0 then
+                -- update calculations
+                local total_sampled = 0
+                for i = 0, 9 do
+                    total_sampled = total_sampled + self.sampled_traces[i]
+                    self.sampled_traces[i] = 0
+                end
+                self.effective_rate = total_sampled / self.spans_counted
+                self.spans_counted = 0
+            end
+            self.last_sample_interval = span_start_interval
+        -- else
+        --     if this started earlier than the last sample interval and we've just reset things,
+        --     then we can't do much about it
+        --     this is checked for later as well
+        end
+    else
+        self.last_sample_interval = span_start_interval
+    end
+
+    self.spans_counted = self.spans_counted + 1
+    -- set limiter metrics, regardless of outcome of initial sampling rate
+    span.metrics["_dd.rule_psr"] = self.sample_rate
+    span.metrics["_dd.limit_psr"] = self.effective_rate
+    -- apply initial sampling rate
+    local current_decisecond = span.start / 100000000ULL
+    local idx = tonumber(current_decisecond % 10)
+    if self.sampled_traces[idx] < self.sampling_limits[idx] then
+        local sampled = sampling_decision(span, self.sample_rate_max_id)
+        if sampled then
+            -- only sampled traces contribute to this counter
+            self.sampled_traces[idx] = self.sampled_traces[idx] + 1
+        end
+        return sampled
+    end
+
+    -- initial sample rate not applied, so use agent sample rates
     local service = span.service
     if not service then
         service = ""
     end
-    local env = span.env
+    local env = span.meta["env"]
     if not env then
         env = ""
     end
 
-    local service_env = self.agent_sample_rates["service:" .. service .. ",env:" .. env]
+    local sample_rate_key = "service:" .. service .. ",env:" .. env
+    local service_env = self.agent_sample_rates[sample_rate_key]
     if service_env then
         local sampled = sampling_decision(span, service_env.max_id)
         span.metrics["_dd.agent_psr"] = service_env.rate
@@ -110,7 +168,6 @@ function sampler_methods:sample(span)
 end
 
 function sampler_methods:update_sampling_rates(json_payload)
-    -- kong.log.err("update_sampling_rates: " .. json_payload)
     local agent_update, err = cjson.decode(json_payload)
     if err then
         -- log an error?
@@ -147,9 +204,6 @@ function sampler_methods:update_sampling_rates(json_payload)
     if not self.agent_sample_rates[default_sampling_rate_key] then
         self.agent_sample_rates[default_sampling_rate_key] = default_sampling_rate_value
     end
-    local entries = 0
-    for key, value in pairs(self.agent_sample_rates) do entries = entries + 1 end
-    -- kong.log.err("update_sampling_rates: " .. tostring(entries) .. "rates")
 end
 
 

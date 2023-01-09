@@ -60,6 +60,8 @@ return {
                 { static_tags = { type = "array", elements = static_tag,
                 custom_validator = validate_static_tags } },
                 { resource_name_rule = { type = "array", elements = resource_name_rule } },
+                { initial_samples_per_second = { type = "integer", default = 100, gt = 0 } },
+                { initial_sample_rate = { type = "number", default = 1.0, between = {0, 1 } } },
             },
         }, },
     },
