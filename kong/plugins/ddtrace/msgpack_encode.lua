@@ -53,15 +53,14 @@ local frexp = require'math'.frexp or require'mathx'.frexp
 local ldexp = require'math'.ldexp or require'mathx'.ldexp
 local huge = require'math'.huge
 local tconcat = require'table'.concat
+local format = require'string'.format
 
 local m = {}
 
---[[ debug only
 local function hexadump (s)
 return (s:gsub('.', function (c) return format('%02X ', c:byte()) end))
 end
 m.hexadump = hexadump
---]]
 
 local function argerror (caller, narg, extramsg)
     error("bad argument #" .. tostring(narg) .. " to "
@@ -208,6 +207,25 @@ packers['array'] = function (buffer, tbl, n)
         packers[type(v)](buffer, v)
     end
 end
+
+local arrayheader = function (n)
+    if n <= 0x0F then
+        return char(0x90 + n)      -- fixarray
+    elseif n <= 0xFFFF then
+        return char(0xDC,          -- array16
+        floor(n / 0x100),
+        n % 0x100)
+    elseif n <= 4294967295.0 then
+        return char(0xDD,          -- array32
+        floor(n / 0x1000000),
+        floor(n / 0x10000) % 0x100,
+        floor(n / 0x100) % 0x100,
+        n % 0x100)
+    else
+        error"overflow in arrayheader"
+    end
+end
+m.arrayheader = arrayheader
 
 local set_array = function (array)
     if array == 'without_hole' then
@@ -563,7 +581,7 @@ set_integer'unsigned'
 maxinteger = 9007199254740991
 mininteger = -maxinteger
 set_number'double'
-set_array'without_hole'
+set_array'with_hole'
 
 m._VERSION = '0.5.2'
 m._DESCRIPTION = "lua-MessagePack : a pure Lua implementation"

@@ -1,5 +1,6 @@
 local resty_http = require "resty.http"
 local encoder = require "kong.plugins.ddtrace.msgpack_encode"
+local table =  require "table"
 
 local agent_writer_methods = {}
 local agent_writer_mt = {
@@ -18,31 +19,31 @@ end
 
 function agent_writer_methods:add(spans)
     local i = self.trace_segments_n + 1
-    self.trace_segments[i] = spans
+    self.trace_segments[i] = encoder.pack(spans)
     self.trace_segments_n = i
 end
 
 
 function agent_writer_methods:flush()
     if self.trace_segments_n == 0 then
+        -- return immediately if no data to send
         return true
     end
 
-    -- kong.log.err("trace_segments: ", #self.trace_segments)
-    -- kong.log.err("trace_segments: ", dump(self.trace_segments))
-
-    local payload = encoder.pack(self.trace_segments)
-    -- kong.log.err("payload length: ", #payload)
-    -- kong.log.err("hexdump: ", to_hex(payload))
+    local payload = encoder.arrayheader(self.trace_segments_n) .. table.concat(self.trace_segments)
+    -- kong.log.err("payload type: " .. type(payload) .. " size: " .. #payload)
+    -- kong.log.err(encoder.hexadump(payload))
+    -- clear encoded segments
     self.trace_segments = {}
     self.trace_segments_n = 0
+    if true then
+        return true
+    end
 
     if self.http_endpoint == nil or self.http_endpoint == ngx.null then
         kong.log.err("no useful endpoint to send payload")
         return true
     end
-
-    -- kong.log.err("sending request")
 
     local httpc = resty_http.new()
     local res, err = httpc:request_uri(self.http_endpoint, {
