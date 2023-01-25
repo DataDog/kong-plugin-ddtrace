@@ -36,9 +36,6 @@ function agent_writer_methods:flush()
     -- clear encoded segments
     self.trace_segments = {}
     self.trace_segments_n = 0
-    if true then
-        return true
-    end
 
     if self.http_endpoint == nil or self.http_endpoint == ngx.null then
         kong.log.err("no useful endpoint to send payload")
