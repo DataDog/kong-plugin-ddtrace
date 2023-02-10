@@ -247,11 +247,6 @@ if subsystem == "http" then
 
         -- Add metrics
         request_span.metrics["_dd.top_level"] = 1
-        if set_psr_metrics then
-            request_span.metrics["_dd.agent_psr"] = 1
-            request_span.metrics["_dd.rule_psr"] = 0
-            request_span.metrics["_dd.limit_psr"] = 0
-        end
 
         -- Set nginx informational tags
         request_span:set_tag("nginx.version", ngx.config.nginx_version)

@@ -22,7 +22,7 @@ local function max_id_for_rate(rate)
     if rate == 1.0 then
         return 0xFFFFFFFFFFFFFFFFULL
     end
-    if rate == 0.0 then
+    if not rate or rate == 0.0 then
         return 0x0ULL
     end
     -- calculate the rate, basically shifting decimal places
@@ -94,52 +94,52 @@ local function sampling_decision(span, max_id)
     return true
 end
 
-    
-
-
-
-function sampler_methods:sample(span)
+local function apply_initial_sample_rate(sampler, span)
     -- check for rollover to new sampling interval
     local span_start_interval = span.start / 1000000000ULL
-    if self.last_sample_interval then
-        if span_start_interval > self.last_sample_interval then
-            if self.sample_rate > 0.0  and self.spans_counted > 0 then
+    if sampler.last_sample_interval then
+        if span_start_interval > sampler.last_sample_interval then
+            if sampler.sample_rate > 0.0  and sampler.spans_counted > 0 then
                 -- update calculations
                 local total_sampled = 0
                 for i = 0, 9 do
-                    total_sampled = total_sampled + self.sampled_traces[i]
-                    self.sampled_traces[i] = 0
+                    total_sampled = total_sampled + sampler.sampled_traces[i]
+                    sampler.sampled_traces[i] = 0
                 end
-                self.effective_rate = total_sampled / self.spans_counted
-                self.spans_counted = 0
+                sampler.effective_rate = total_sampled / sampler.spans_counted
+                sampler.spans_counted = 0
             end
-            self.last_sample_interval = span_start_interval
+            sampler.last_sample_interval = span_start_interval
         -- else
         --     if this started earlier than the last sample interval and we've just reset things,
         --     then we can't do much about it
         --     this is checked for later as well
         end
     else
-        self.last_sample_interval = span_start_interval
+        sampler.last_sample_interval = span_start_interval
     end
 
-    self.spans_counted = self.spans_counted + 1
+    sampler.spans_counted = sampler.spans_counted + 1
     -- set limiter metrics, regardless of outcome of initial sampling rate
-    span.metrics["_dd.rule_psr"] = self.sample_rate
-    span.metrics["_dd.limit_psr"] = self.effective_rate
+    span.metrics["_dd.rule_psr"] = sampler.sample_rate
+    span.metrics["_dd.limit_psr"] = sampler.effective_rate
     -- apply initial sampling rate
     local current_decisecond = span.start / 100000000ULL
     local idx = tonumber(current_decisecond % 10)
-    if self.sampled_traces[idx] < self.sampling_limits[idx] then
-        local sampled = sampling_decision(span, self.sample_rate_max_id)
+    if sampler.sampled_traces[idx] < sampler.sampling_limits[idx] then
+        local sampled = sampling_decision(span, sampler.sample_rate_max_id)
         if sampled then
             -- only sampled traces contribute to this counter
-            self.sampled_traces[idx] = self.sampled_traces[idx] + 1
+            sampler.sampled_traces[idx] = sampler.sampled_traces[idx] + 1
         end
-        return sampled
+        return true, sampled
     end
 
-    -- initial sample rate not applied, so use agent sample rates
+    return false, false
+end
+
+
+local function apply_agent_sample_rate(sampler, span) 
     local service = span.service
     if not service then
         service = ""
@@ -150,19 +150,41 @@ function sampler_methods:sample(span)
     end
 
     local sample_rate_key = "service:" .. service .. ",env:" .. env
-    local service_env = self.agent_sample_rates[sample_rate_key]
+    local service_env = sampler.agent_sample_rates[sample_rate_key]
     if service_env then
         local sampled = sampling_decision(span, service_env.max_id)
         span.metrics["_dd.agent_psr"] = service_env.rate
-        return sampled
+        return true, sampled
     end
-    local default = self.agent_sample_rates[default_sampling_rate_key]
+    local default = sampler.agent_sample_rates[default_sampling_rate_key]
     if default then
         local sampled = sampling_decision(span, default.max_id)
         span.metrics["_dd.agent_psr"] = default.rate
+        return true, sampled
+    end
+    return false, false
+end
+
+
+-- make a sampling decision for the trace
+-- if an initial sample rate is configured, try that.
+-- if no initial sample rate is set, or the limit has temporarily been exceeded,
+-- apply rates that are calculated by the agent.
+-- if there are no rates available (usually when just started), sample the trace
+function sampler_methods:sample(span)
+    if self.sample_rate then
+        local applied, sampled = apply_initial_sample_rate(self, span)
+        kong.log.err("sample: initial sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
+        if applied then
+            return sampled
+        end
+    end
+    local applied, sampled = apply_agent_sample_rate(self, span)
+    kong.log.err("sample: agent sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
+    if applied then
         return sampled
     end
-
+    -- neither initial-sample or agent-sample rates were applied
     -- fallback is to just sample things
     return true
 end
