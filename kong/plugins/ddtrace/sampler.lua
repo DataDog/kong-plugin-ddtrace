@@ -174,13 +174,13 @@ end
 function sampler_methods:sample(span)
     if self.sample_rate then
         local applied, sampled = apply_initial_sample_rate(self, span)
-        kong.log.err("sample: initial sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
+        -- kong.log.err("sample: initial sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
         if applied then
             return sampled
         end
     end
     local applied, sampled = apply_agent_sample_rate(self, span)
-    kong.log.err("sample: agent sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
+    -- kong.log.err("sample: agent sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
     if applied then
         return sampled
     end
