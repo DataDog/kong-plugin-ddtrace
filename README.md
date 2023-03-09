@@ -45,17 +45,20 @@ If not configured, a default value of `kong` will be used.
 The environment is a larger grouping of related services, such as `prod`, `staging` or `dev`.
 If not configured, it will not be sent, and traces will be categorized as `env:none`.
 
-`--data 'config.environment=prod`
+`--data 'config.environment=prod'`
 
 ### Sampling Controls
 
 Sampling of traces is required in environments with high traffic load to reduce the amount of trace data produced and ingested by Datadog.
 
-An initial sampling amount of 100 traces-per-second is applied, with a default rate of 1.0 (100%).
-When traces-per-second has been exceeded, sample rates provided by the datadog agent are used instead.
-These rates are updated dynamically to values between 0.0 (0%) and 1.0 (100%).
+By default, sampling rates are provided by the Datadog agent, and additional controls are available if necessary using configuration of `initial_sample_rate` and `initial_samples_per_second`.
 
-The value of `initial_samples_per_second` and `initial_sample_rate` can be configured to increase or decrease the base amount of traces that are sampled.
+The `initial_sample_rate` can be set to a value between 0.0 (0%) and 1.0 (100%), and this is limited by the setting for `initial_samples_per_second` (default: 100).
+After that amount of sampled traces has been exceeded, the sampling rates provided by the Datadog agent are used.
+
+For example with `initial_sample_rate=0.1`, `initial_samples_per_second=5` and a traffic rate of 100 RPS:
+- The first 40-50 requests per second will be sampled at 10% until 5 traces have been sampled
+- The remaining 50-60 requests for that second will be sampled with the latest rate provided by the agent
 
 `-- data 'config.initial_samples_per_second=100' --data 'config.initial_sample_rate=1.0'`
 
