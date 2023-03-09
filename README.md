@@ -57,7 +57,7 @@ These rates are updated dynamically to values between 0.0 (0%) and 1.0 (100%).
 
 The value of `initial_samples_per_second` and `initial_sample_rate` can be configured to increase or decrease the base amount of traces that are sampled.
 
--- data 'config.initial_samples_per_second=100' --data 'config.initial_sample_rate=1.0'
+`-- data 'config.initial_samples_per_second=100' --data 'config.initial_sample_rate=1.0'`
 
 ### Resource Name Rules
 
@@ -136,10 +136,7 @@ At this stage, there are no built-in unit or integration tests. These will be ad
 
 ## Issues and Incomplete features
 
-- The request span's start time appears incorrect
-- There are no sampling options - all traces are sampled
-- Span names could be improved
-- The v0.4 API is being used to send to the agent - an update will use v0.7
+- The request span's start time appears incorrect, as it is a rounded-down millisecond value provided by Kong.
 - More details should be collected for errors
 - A high resolution timer option should be added (eg: using `clock_gettime` instead of `ngx.now()`)
 
