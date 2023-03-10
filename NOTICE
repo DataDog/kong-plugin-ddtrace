@@ -1,0 +1,12 @@
+Datadog kong-plugin-ddtrace.
+Copyright 2023 Datadog, Inc.
+
+This product includes software developed at Datadog (https://www.datadoghq.com/).
+
+The Initial Developer of some parts of the plugin, which are copied from, derived from, or
+inspired by kong-plugin-zipkin, is Kong, Inc. (https://konghq.com)
+Copyright 2016-2022 Kong Inc.
+
+The Initial Developer of the msgpack encoding implementation, which is copied from, derived from, or
+inspired by lua-MessagePack, is Francois Perrad. (https://fperrad.frama.io/)
+Copyright (C) 2012-2019 Francois Perrad.
