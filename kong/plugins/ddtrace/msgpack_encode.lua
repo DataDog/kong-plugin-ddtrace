@@ -34,7 +34,8 @@
 -- ===============================================================================
 -- 
 
-
+-- Exclude this code from test coverage, as it would be if it were a separate module.
+-- luacov: disable
 local ffi = require 'ffi'
 
 local maxinteger
