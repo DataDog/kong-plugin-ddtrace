@@ -106,13 +106,13 @@ function span_methods:set_tag(key, value)
         "invalid tag value (expected string, number, boolean or nil)")
     end
     local meta = self.meta
-    if meta then
+    if not meta then
+        meta = {}
+    end
+    if value then
         meta[key] = tostring(value)
-    elseif value ~= nil then
-        meta = {
-            [key] = tostring(value)
-        }
-        self.meta = meta
+    else
+        meta[key] = nil
     end
     return true
 end
