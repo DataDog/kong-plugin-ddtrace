@@ -1,6 +1,5 @@
 local resty_http = require "resty.http"
 local encoder = require "kong.plugins.ddtrace.msgpack_encode"
-local handler = require "kong.plugins.ddtrace.handler"
 local table =  require "table"
 
 local agent_writer_methods = {}
