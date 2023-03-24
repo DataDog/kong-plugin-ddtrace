@@ -132,6 +132,7 @@ local function apply_initial_sample_rate(sampler, span)
             -- only sampled traces contribute to this counter
             sampler.sampled_traces[idx] = sampler.sampled_traces[idx] + 1
         end
+        span.metrics["_dd.p.dm"] = 3
         return true, sampled
     end
 
@@ -176,16 +177,19 @@ function sampler_methods:sample(span)
         local applied, sampled = apply_initial_sample_rate(self, span)
         -- kong.log.err("sample: initial sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
         if applied then
+            span.metrics["_dd.p.dm"] = 3 -- "RULE"
             return sampled
         end
     end
     local applied, sampled = apply_agent_sample_rate(self, span)
     -- kong.log.err("sample: agent sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
     if applied then
+        span.metrics["_dd.p.dm"] = 1 -- "AGENT RATE"
         return sampled
     end
     -- neither initial-sample or agent-sample rates were applied
     -- fallback is to just sample things
+    span.metrics["_dd.p.dm"] = 0 -- "DEFAULT"
     return true
 end
 
