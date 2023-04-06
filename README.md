@@ -12,26 +12,32 @@ This plugin is not maintained by Kong.
 
 ## Installation
 
-In the future, installation will be performed using `luarocks`. However, a release has not been published yet.
-
-For now, it can be installed by manually cloning the repository to the kong/plugins directory.
+This plugin can be installed using `luarocks`.
 
 ```bash
-cd /path/to/kong/plugins
-git clone https://github.com/Datadog/kong-plugin-ddtrace ddtrace
+luarocks install kong-plugin-ddtrace
 ```
 
 After kong is started/restarted, the plugin can be enabled. One example:
 ```bash
+# Enabled globally
+curl -i -X POST --url http://localhost:8001/plugins/ --data 'name=ddtrace' --data 'config.agent_endpoint=http://localhost:8126/v0.4/traces'
+# Enabled for specific service only
 curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --data 'name=ddtrace' --data 'config.agent_endpoint=http://localhost:8126/v0.4/traces'
 ```
 
-The `agent_endpoint` will need configuring to match the address of the datadog agent.
+If the datadog agent is not reachable on `http://localhost:8126`, then you will need to configure this as well.
 
 ## Configuration
 
 This plugin supports a number of configuration options. These can be supplied when enabling the plugin by providing additional `--data` options to the `curl` request.
 The option is prefixed by `config`, eg: to configure the service name, the `curl` option will be represented as `--data 'config.service_name=your-preferred-name'`.
+
+### Agent Trace Endpoint
+
+The address where this plugin will submit traces to the datadog agent. The default is `http://localhost:8126/v0.4/traces`.
+
+`--data 'config.agent_endpoint=http://your-agent-address:8126/v0.4/traces'`
 
 ### Service Name
 
@@ -111,11 +117,14 @@ Additional details about regular expressions can be found in OpenResty documenta
 
 ## Testing
 
+### Test Environment
+
 Testing can be performed using `pongo`.
 
 Prepare the environment:
 
 ```bash
+export DD_API_KEY=... # your API key is required for this test to successfully submit traces from the agent to Datadog.
 git clone https://github.com/Datadog/kong-plugin-ddtrace
 cd kong-plugin-ddtrace
 pongo up
@@ -124,24 +133,45 @@ pongo shell
 
 Inside the shell:
 ```bash
+# This migration step is only required the first time after running `pongo up`
 kong migrations bootstrap
+
+
 export KONG_PLUGINS=bundled,ddtrace
 kong start
 
+# Create a service named example service that handles requests for mockbin.org and routes requests for example.com to that endpoint.
 curl -i -X POST --url http://localhost:8001/services/ --data 'name=example-service' --data 'url=http://mockbin.org'
 curl -i -X POST --url http://localhost:8001/services/example-service/routes --data 'hosts[]=example.com'
 curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --data 'name=ddtrace' --data 'config.agent_endpoint=http://datadog-agent:8126/v0.4/traces'
 
-curl -i -X GET --url http://localhost:8000/ --header 'Host: example.com'
+curl --header 'Host: example.com' http://localhost:8000/headers
 ```
 
-At this stage, there are no built-in unit or integration tests. These will be added as part of additional feature development of this plugin.
+This should result in a JSON response from the final `curl` request, with headers containing `x-datadog-trace-id`, `x-datadog-parent-id` and `x-datadog-sampling-priority`.
+If the `DD_API_KEY` was correctly set, then the trace should appear at https://app.datadoghq.com/apm/traces
+
+### Built-in Tests
+
+The built-in tests can be executed by running `pongo test`.
+
+A report for test coverage is produced when run with additional options: `pongo run -- --coverage`.
 
 ## Issues and Incomplete features
 
 - The request span's start time appears incorrect, as it is a rounded-down millisecond value provided by Kong.
 - More details should be collected for errors
 - A high resolution timer option should be added (eg: using `clock_gettime` instead of `ngx.now()`)
+
+## Reporting an issue
+
+When reporting an issue, please provide the following:
+- Version of kong: the output of running `kong version`
+- Platform: kubernetes, docker, or the specific OS type
+- `ddtrace` version: the output of running `luarocks list kong-plugin-ddtrace`
+- Configuration Type: plugin enabled globally or for specific service(s)
+- Configuration Details: output of `curl -s http://localhost:8001/plugins/` for globally enabled and `curl -s http://localhost:8001/services/example-service/plugins/` for a service specifically named `example-service`
+- Detailed description of the problem, and if known, the expected behavior.
 
 ## Acknowledgements
 
