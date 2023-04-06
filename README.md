@@ -119,7 +119,7 @@ Additional details about regular expressions can be found in OpenResty documenta
 
 ### Test Environment
 
-Testing can be performed using `pongo`.
+Testing can be performed using `pongo`. Installation instructions are [here](https://github.com/Kong/kong-pongo#installation).
 
 Prepare the environment:
 
