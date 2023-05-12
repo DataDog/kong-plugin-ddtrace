@@ -430,6 +430,7 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
         -- TODO: allow user to define additional status codes that are treated as errors.
         if status_code >= 500 then
             request_span:set_tag("error", true)
+            request_span.error = status_code
         end
     end
     if ngx_ctx.authenticated_consumer then

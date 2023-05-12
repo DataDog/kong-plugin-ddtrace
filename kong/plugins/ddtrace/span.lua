@@ -61,7 +61,8 @@ local function new(service, name, resource,
         meta = {},
         metrics = {
             ["_sampling_priority_v1"] = sampling_priority,
-        }
+        },
+        error = 0,
     }, span_mt)
 end
 
