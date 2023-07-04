@@ -230,10 +230,11 @@ if subsystem == "http" then
         sampling_priority,
         origin)
 
-        -- Set datadog tags (currently only 'env')
+        -- Set datadog tags
         if conf and conf.environment then
             request_span:set_tag("env", conf.environment)
         end
+        request_span:set_tag("language", "lua")
 
         -- TODO: decide about deferring sampling decision until injection or not
         if not sampling_priority then
