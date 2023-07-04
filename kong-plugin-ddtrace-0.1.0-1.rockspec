@@ -1,9 +1,9 @@
 package = "kong-plugin-ddtrace"
-version = "0.0.2-1"
+version = "0.1.0-1"
 
 source = {
-  url = "https://github.com/datadog/kong-plugin-ddtrace/archive/v0.0.2.zip",
-  dir = "kong-plugin-ddtrace-0.0.2",
+  url = "https://github.com/datadog/kong-plugin-ddtrace/archive/v0.1.0.zip",
+  dir = "kong-plugin-ddtrace-0.1.0",
 }
 
 description = {
@@ -14,7 +14,6 @@ description = {
 
 dependencies = {
   "lua >= 5.1",
-  "lua-cjson",
   "lua-resty-http >= 0.11",
 }
 
