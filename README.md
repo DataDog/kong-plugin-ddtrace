@@ -1,14 +1,12 @@
 # Datadog APM Plugin for Kong
 
 This plugin adds Datadog tracing to Kong.
-This version is heavily based on the [zipkin plugin](https://github.com/Kong/kong-plugin-zipkin), but is expected to be refactored as additional features are developed.
+It was originally based on the [zipkin plugin](https://github.com/Kong/kong-plugin-zipkin), although it is now significantly modified for Datadog-specific functionality.
 
-## Status: Early Access
+## Compatibility
 
-At the moment, this plugin is being made available, with known issues and incomplete features.
-It should only be used in development and testing/staging environments, and issues should be reported either via Github or by contacting your Datadog Technical Account Manager.
-
-This plugin is not maintained by Kong.
+This plugin is compatible with Kong Gateway v2.x and v3.x.
+The oldest version tested is v2.0.5 and the newest is v3.2.2
 
 ## Installation
 
