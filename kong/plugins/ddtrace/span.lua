@@ -58,7 +58,9 @@ local function new(service, name, resource,
         start = start,
         sampling_priority = sampling_priority,
         origin = origin,
-        meta = {},
+        meta = {
+            ["language"] = "lua",
+        },
         metrics = {
             ["_sampling_priority_v1"] = sampling_priority,
         },

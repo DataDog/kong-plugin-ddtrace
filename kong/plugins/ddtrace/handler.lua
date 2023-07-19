@@ -78,6 +78,8 @@ local function tag_with_service_and_route(span)
         if type(route.name) == "string" then
             span:set_tag("kong.route_name", route.name)
         end
+    else
+        span:set_tag("kong.route", "none")
     end
 end
 
@@ -234,7 +236,6 @@ if subsystem == "http" then
         if conf and conf.environment then
             request_span:set_tag("env", conf.environment)
         end
-        request_span:set_tag("language", "lua")
 
         -- TODO: decide about deferring sampling decision until injection or not
         if not sampling_priority then
@@ -419,10 +420,6 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
                 proxy_span:set_tag(tag_prefix .. "latency", try.balancer_latency)
             end
         end
-
-        proxy_span:set_tag("peer.hostname", balancer_data.hostname)
-        proxy_span:set_tag("peer.ip", balancer_data.ip)
-        proxy_span:set_tag("peer.port", balancer_data.port)
     end
 
     if subsystem == "http" then
