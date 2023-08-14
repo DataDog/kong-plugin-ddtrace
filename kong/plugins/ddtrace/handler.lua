@@ -98,19 +98,6 @@ local function get_or_add_proxy_span(datadog, timestamp)
 end
 
 
-local function timer_log(premature, agent_writer)
-    if premature then
-        return
-    end
-
-    local ok, err = agent_writer:flush()
-    if not ok then
-        kong.log.err("agent_writer error ", err)
-        return
-    end
-end
-
-
 local initialize_request
 
 
@@ -143,14 +130,14 @@ local function apply_resource_name_rules(uri, rules)
     if rules then
         for _, rule in ipairs(rules) do
             -- try to match URI to rule's expression
-            local from, to, err = regex.find(uri, rule.match, "ajo")
+            local from, to, _ = regex.find(uri, rule.match, "ajo")
             if from then
                 local matched_uri = strsub(uri, from, to)
                 -- if we have a match but no replacement, return the matched value
                 if not rule.replacement then
                     return matched_uri
                 end
-                local replaced_uri, _, err = regex.sub(matched_uri, rule.match, rule.replacement, "ajo")
+                local replaced_uri, _, _ = regex.sub(matched_uri, rule.match, rule.replacement, "ajo")
                 if replaced_uri then
                     return replaced_uri
                 end
@@ -163,8 +150,7 @@ local function apply_resource_name_rules(uri, rules)
     -- except if it looks like a version identifier (v1, v2 etc) or if it is
     -- a status / health check
     local fragments = {}
-    local check = false
-    local it, err = regex.gmatch(uri, "(/[^/]*)", "jo")
+    local it, _ = regex.gmatch(uri, "(/[^/]*)", "jo")
     if not it then
         return uri
     end
@@ -239,12 +225,7 @@ if subsystem == "http" then
 
         -- TODO: decide about deferring sampling decision until injection or not
         if not sampling_priority then
-            local sampled = sampler:sample(request_span)
-            if sampled then
-                request_span:set_sampling_priority(1)
-            else
-                request_span:set_sampling_priority(0)
-            end
+            sampler:sample(request_span)
         end
 
         -- Add metrics

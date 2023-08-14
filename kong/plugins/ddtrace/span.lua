@@ -8,7 +8,6 @@ local ffi = require "ffi"
 local utils = require "kong.tools.utils"
 local rand_bytes = utils.get_rand_bytes
 local byte = string.byte
-local fmt = string.format
 
 local span_methods = {}
 local span_mt = {
@@ -108,14 +107,13 @@ function span_methods:set_tag(key, value)
         assert(vt == "string" or vt == "number" or vt == "boolean",
         "invalid tag value (expected string, number, boolean or nil)")
     end
-    local meta = self.meta
-    if not meta then
-        meta = {}
+    if not self.meta then
+        self.meta = {}
     end
     if value then
-        meta[key] = tostring(value)
+        self.meta[key] = tostring(value)
     else
-        meta[key] = nil
+        self.meta[key] = nil
     end
     return true
 end
