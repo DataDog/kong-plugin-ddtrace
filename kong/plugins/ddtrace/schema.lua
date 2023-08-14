@@ -56,7 +56,8 @@ return {
             fields = {
                 { service_name = { type = "string", required = true, default = "kong" } },
                 { environment = { type = "string", default = "none" } },
-                { agent_endpoint = typedefs.url({ default = "http://localhost:8126/v0.4/traces" }) },
+                { agent_endpoint = typedefs.url({ default = "http://localhost:8126/v0.4/traces",
+                referenceable = true }) },
                 { static_tags = { type = "array", elements = static_tag,
                 custom_validator = validate_static_tags } },
                 { resource_name_rule = { type = "array", elements = resource_name_rule } },
