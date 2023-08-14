@@ -8,8 +8,6 @@ and a rate-based sampler using rates provided by the Datadog agent.
 
 local cjson = require "cjson.safe"
 cjson.decode_array_with_array_mt = true
-local ffi = require "ffi"
-local uint64_t = ffi.typeof("uint64_t")
 
 local sampler_methods = {}
 local sampler_mt = {
@@ -52,7 +50,7 @@ local default_sampling_rate_value = {
     max_id = max_id_for_rate(1.0),
 }
 
-function new(samples_per_second, sample_rate)
+local function new(samples_per_second, sample_rate)
     -- pre-calculate the counters used for initial sampling
     local sampled_traces = {}
     local sampling_limits = {}
@@ -178,6 +176,11 @@ function sampler_methods:sample(span)
         -- kong.log.err("sample: initial sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
         if applied then
             span.metrics["_dd.p.dm"] = 3 -- "RULE"
+            if sampled then
+                span:set_sampling_priority(2)
+            else
+                span:set_sampling_priority(-1)
+            end
             return sampled
         end
     end
@@ -185,11 +188,17 @@ function sampler_methods:sample(span)
     -- kong.log.err("sample: agent sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
     if applied then
         span.metrics["_dd.p.dm"] = 1 -- "AGENT RATE"
+        if sampled then
+            span:set_sampling_priority(1)
+        else
+            span:set_sampling_priority(0)
+        end
         return sampled
     end
     -- neither initial-sample or agent-sample rates were applied
     -- fallback is to just sample things
     span.metrics["_dd.p.dm"] = 0 -- "DEFAULT"
+    span:set_sampling_priority(1)
     return true
 end
 

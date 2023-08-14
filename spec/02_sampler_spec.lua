@@ -26,16 +26,52 @@ describe("trace sampler", function()
                 assert.equal(span.metrics["_dd.rule_psr"], 1.0)
                 assert.equal(span.metrics["_dd.limit_psr"], 1.0)
                 assert.equal(span.metrics["_dd.p.dm"], 3)
+                assert.equal(span.sampling_priority, 2)
             else
                 assert.is_true(sampled) -- still true, but not because of limiter
                 assert.equal(span.metrics["_dd.rule_psr"], 1.0)
                 assert.equal(span.metrics["_dd.limit_psr"], 1.0)
                 assert.equal(span.metrics["_dd.agent_psr"], 1.0)
                 assert.equal(span.metrics["_dd.p.dm"], 1)
+                assert.equal(span.sampling_priority, 1)
             end
             span:finish(start_time + duration)
             start_time = start_time + increment
         end
+    end)
+    it("applies the rate to the limit", function()
+         local start_time = 1700000000000000000LL
+         local duration = 100000000LL
+         local increment = 100000000LL -- 0.1s
+         local sampler = new_sampler(5, 0.8)
+         local limit_rule_and_sampled = 0
+         local limit_rule_and_not_sampled = 0
+         local agent_rate_applied = 0
+         for i = 1, 10 do
+             local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
+             local sampled = sampler:sample(span)
+             if span.metrics["_dd.p.dm"] == 3 then
+                 if sampled then
+                     assert.equal(span.sampling_priority, 2)
+                     limit_rule_and_sampled = limit_rule_and_sampled + 1
+                 else
+                     assert.equal(span.sampling_priority, -1)
+                     limit_rule_and_not_sampled = limit_rule_and_not_sampled + 1
+                 end
+             elseif span.metrics["_dd.p.dm"] == 1 then
+                 if sampled then
+                     assert.equal(span.sampling_priority, 1)
+                 else
+                     assert.equal(span.sampling_priority, 0)
+                 end
+                 agent_rate_applied = agent_rate_applied + 1
+             end
+             span:finish(start_time + duration)
+             start_time = start_time + increment
+         end
+         assert.equal(limit_rule_and_sampled, 4)
+         assert.equal(limit_rule_and_not_sampled, 1)
+         assert.equal(agent_rate_applied, 5)
     end)
     it("updates the effective rate", function()
         local start_time = 1700000000000000000LL
@@ -47,7 +83,7 @@ describe("trace sampler", function()
         -- so effective rate should be 0.5
         for i = 1, 5 do
             span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
-            local sampled = sampler:sample(span)
+            sampler:sample(span)
             span:finish(start_time + duration)
             start_time = start_time + increment
         end
@@ -58,7 +94,7 @@ describe("trace sampler", function()
         local duration = 100000000LL
         local sampler = new_sampler(0, 1.0)
         local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
-        local sampled = sampler:sample(span)
+        sampler:sample(span)
         span:finish(start_time + duration)
         assert.equal(span.metrics["_dd.p.dm"], 1)
     end)
@@ -68,7 +104,7 @@ describe("trace sampler", function()
         local sampler = new_sampler(0, 1.0)
         sampler:update_sampling_rates('{ "rate_by_service": { "service:test_service,env:": 0.1, "service:,env:": 1.0 } }')
         local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
-        local sampled = sampler:sample(span)
+        sampler:sample(span)
         span:finish(start_time + duration)
         assert.equal(span.metrics["_dd.p.dm"], 1)
         assert.equal(span.metrics["_dd.agent_psr"], 0.1)
