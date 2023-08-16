@@ -42,12 +42,12 @@ describe("trace sampler", function()
     it("applies the rate to the limit", function()
          local start_time = 1700000000000000000LL
          local duration = 100000000LL
-         local increment = 100000000LL -- 0.1s
-         local sampler = new_sampler(5, 0.8)
+         local increment = 10000000LL -- 0.01s
+         local sampler = new_sampler(50, 0.8)
          local limit_rule_and_sampled = 0
          local limit_rule_and_not_sampled = 0
          local agent_rate_applied = 0
-         for i = 1, 10 do
+         for i = 1, 100 do
              local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
              local sampled = sampler:sample(span)
              if span.metrics["_dd.p.dm"] == 3 then
@@ -69,9 +69,12 @@ describe("trace sampler", function()
              span:finish(start_time + duration)
              start_time = start_time + increment
          end
-         assert.equal(limit_rule_and_sampled, 4)
-         assert.equal(limit_rule_and_not_sampled, 1)
-         assert.equal(agent_rate_applied, 5)
+         -- the quantities sampled and not sampled depend on randomness, so they fall within a range
+         assert.is_true(limit_rule_and_sampled >= 49)
+         assert.is_true(limit_rule_and_sampled <= 51)
+         assert.is_true(limit_rule_and_not_sampled >= 6)
+         assert.is_true(limit_rule_and_not_sampled <= 18)
+         assert.equal(agent_rate_applied, 100 - limit_rule_and_sampled - limit_rule_and_not_sampled)
     end)
     it("updates the effective rate", function()
         local start_time = 1700000000000000000LL
