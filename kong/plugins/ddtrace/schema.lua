@@ -47,6 +47,7 @@ local function allow_referenceable(field)
     return field
 end
 
+-- make a field referenceable if kong version >= 2.8.0
 local resource_name_rule = Schema.define {
     type = "record",
     fields = {
