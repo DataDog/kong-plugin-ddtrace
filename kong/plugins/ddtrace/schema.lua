@@ -40,6 +40,13 @@ local validate_static_tags = function(tags)
     return true
 end
 
+local function allow_referenceable(field)
+    if kong.version_num >= 2008000 then
+        field.referenceable = true
+    end
+    return field
+end
+
 local resource_name_rule = Schema.define {
     type = "record",
     fields = {
@@ -56,8 +63,7 @@ return {
             fields = {
                 { service_name = { type = "string", required = true, default = "kong" } },
                 { environment = { type = "string", default = "none" } },
-                { agent_endpoint = typedefs.url({ default = "http://localhost:8126/v0.4/traces",
-                referenceable = true }) },
+                { agent_endpoint = allow_referenceable(typedefs.url({ default = "http://localhost:8126/v0.4/traces" })}),
                 { static_tags = { type = "array", elements = static_tag,
                 custom_validator = validate_static_tags } },
                 { resource_name_rule = { type = "array", elements = resource_name_rule } },
