@@ -37,6 +37,10 @@ The address where this plugin will submit traces to the datadog agent. The defau
 
 `--data 'config.agent_endpoint=http://your-agent-address:8126/v0.4/traces'`
 
+If you are using the [Kong secrets management](https://docs.konghq.com/gateway/latest/kong-enterprise/secrets-management/) system, you can pass a reference to this field as well
+
+`--data 'config.agent_endpoint='{vault://env/agent-trace-endpoint}'`
+
 ### Service Name
 
 The service name represents the application or component that is producing traces. All traces created by this plugin will use the configured service name.
