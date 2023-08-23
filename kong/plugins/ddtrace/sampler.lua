@@ -7,7 +7,7 @@ and a rate-based sampler using rates provided by the Datadog agent.
 ]]
 
 local cjson = require "cjson.safe"
-cjson.decode_array_with_array_mt = true
+cjson.decode_array_with_array_mt(true)
 
 local sampler_methods = {}
 local sampler_mt = {
@@ -205,13 +205,13 @@ end
 function sampler_methods:update_sampling_rates(json_payload)
     local agent_update, err = cjson.decode(json_payload)
     if err then
-        -- log an error?
-        return
+        kong.log.err("error decoding agent sampling rates: " .. err)
+        return false
     end
     local rate_by_service = agent_update["rate_by_service"]
     if not rate_by_service then
-        -- log an error?
-        return
+        kong.log.err("agent sample rates missing field: rate_by_service")
+        return false
     end
 
     -- empty current table
@@ -220,13 +220,21 @@ function sampler_methods:update_sampling_rates(json_payload)
     end
 
     -- update table with new rates
+    local parsed_ok = true
     for key, value in pairs(rate_by_service) do
         if type(key) ~= "string" then
-            -- log an error?
+            kong.log.err("rate_by_service key has type " .. type(key) .. ", expected string")
+            parsed_ok = false
             goto continue
         end
-        if type(value) ~= "number" or value < 0.0 or value > 1.0 then
-            -- log an error?
+        if type(value) ~= "number" then
+            kong.log.err("rate_by_service value has type " .. type(value) .. ", expected number")
+            parsed_ok = false
+            goto continue
+        end
+        if value < 0.0 or value > 1.0 then
+            kong.log.err("rate_by_service value out of expected range: " .. value)
+            parsed_ok = false
             goto continue
         end
         self.agent_sample_rates[key] = {
@@ -239,6 +247,7 @@ function sampler_methods:update_sampling_rates(json_payload)
     if not self.agent_sample_rates[default_sampling_rate_key] then
         self.agent_sample_rates[default_sampling_rate_key] = default_sampling_rate_value
     end
+    return parsed_ok
 end
 
 

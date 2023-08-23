@@ -1,6 +1,13 @@
 local new_sampler = require "kong.plugins.ddtrace.sampler".new
 local new_span = require "kong.plugins.ddtrace.span".new
 
+-- stub implementation of kong.log.err
+_G.kong = {
+    log = {
+        err = function(msg) end,
+    },
+}
+
 describe("trace sampler", function()
     it("is created with initial limits", function()
         local start_time = 1700000000000000000LL
@@ -105,11 +112,27 @@ describe("trace sampler", function()
         local start_time = 1700000000000000000LL
         local duration = 100000000LL
         local sampler = new_sampler(0, 1.0)
-        sampler:update_sampling_rates('{ "rate_by_service": { "service:test_service,env:": 0.1, "service:,env:": 1.0 } }')
+        local rates_applied = sampler:update_sampling_rates('{ "rate_by_service": { "service:test_service,env:": 0.1, "service:,env:": 1.0 } }')
+        assert.is_true(rates_applied)
         local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
         sampler:sample(span)
         span:finish(start_time + duration)
         assert.equal(span.metrics["_dd.p.dm"], 1)
         assert.equal(span.metrics["_dd.agent_psr"], 0.1)
+    end)
+    it("reports errors when parsing fails", function()
+        local sampler = new_sampler(0, 1.0)
+        local empty_reply = sampler:update_sampling_rates('')
+        assert.is_false(empty_reply)
+        local wrong_type = sampler:update_sampling_rates('[]')
+        assert.is_false(wrong_type)
+        local incomplete_json = sampler:update_sampling_rates('{ "rate_by_service": "')
+        assert.is_false(incomplete_json)
+        local missing_rates = sampler:update_sampling_rates('{ "hello": "world" }')
+        assert.is_false(missing_rates)
+        local incorrect_key_type = sampler:update_sampling_rates('{ "rate_by_service": { { "object-not-key": "should have an error" } }')
+        assert.is_false(incorrect_key_type)
+        local incorrect_value_type = sampler:update_sampling_rates('{ "rate_by_service": { "service:test_service,env:": 0.1, "service:,env:": "this should be a number"} }')
+        assert.is_false(incorrect_value_type)
     end)
 end)
