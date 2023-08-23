@@ -17,11 +17,11 @@ local sampler_mt = {
 -- returns a 64-bit value representing the max id that a hashed trace id can
 -- have to be sampled.
 local function max_id_for_rate(rate)
-    if rate == 1.0 then
-        return 0xFFFFFFFFFFFFFFFFULL
-    end
     if not rate or rate == 0.0 then
         return 0x0ULL
+    end
+    if rate == 1.0 then
+        return 0xFFFFFFFFFFFFFFFFULL
     end
     -- calculate the rate, basically shifting decimal places
     local max_id = 0x0ULL
@@ -121,6 +121,7 @@ local function apply_initial_sample_rate(sampler, span)
     -- set limiter metrics, regardless of outcome of initial sampling rate
     span.metrics["_dd.rule_psr"] = sampler.sample_rate
     span.metrics["_dd.limit_psr"] = sampler.effective_rate
+    span.metrics["_dd.p.dm"] = 3
     -- apply initial sampling rate
     local current_decisecond = span.start / 100000000ULL
     local idx = tonumber(current_decisecond % 10)
@@ -130,11 +131,10 @@ local function apply_initial_sample_rate(sampler, span)
             -- only sampled traces contribute to this counter
             sampler.sampled_traces[idx] = sampler.sampled_traces[idx] + 1
         end
-        span.metrics["_dd.p.dm"] = 3
-        return true, sampled
+        return sampled
     end
 
-    return false, false
+    return false
 end
 
 
@@ -166,23 +166,20 @@ end
 
 
 -- make a sampling decision for the trace
--- if an initial sample rate is configured, try that.
--- if no initial sample rate is set, or the limit has temporarily been exceeded,
--- apply rates that are calculated by the agent.
+-- if an initial sample rate is configured, apply that.
+-- otherwise use rates that are calculated by the agent.
 -- if there are no rates available (usually when just started), sample the trace
 function sampler_methods:sample(span)
     if self.sample_rate then
-        local applied, sampled = apply_initial_sample_rate(self, span)
+        local sampled = apply_initial_sample_rate(self, span)
         -- kong.log.err("sample: initial sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
-        if applied then
-            span.metrics["_dd.p.dm"] = 3 -- "RULE"
-            if sampled then
-                span:set_sampling_priority(2)
-            else
-                span:set_sampling_priority(-1)
-            end
-            return sampled
+        span.metrics["_dd.p.dm"] = 3 -- "RULE"
+        if sampled then
+            span:set_sampling_priority(2)
+        else
+            span:set_sampling_priority(-1)
         end
+        return sampled
     end
     local applied, sampled = apply_agent_sample_rate(self, span)
     -- kong.log.err("sample: agent sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))

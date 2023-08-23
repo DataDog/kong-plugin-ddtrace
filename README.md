@@ -62,11 +62,11 @@ Sampling of traces is required in environments with high traffic load to reduce 
 By default, sampling rates are provided by the Datadog agent, and additional controls are available if necessary using configuration of `initial_sample_rate` and `initial_samples_per_second`.
 
 The `initial_sample_rate` can be set to a value between 0.0 (0%) and 1.0 (100%), and this is limited by the setting for `initial_samples_per_second` (default: 100).
-After that amount of sampled traces has been exceeded, the sampling rates provided by the Datadog agent are used.
+After that amount of sampled traces has been exceeded, traces will not be sampled.
 
 For example with `initial_sample_rate=0.1`, `initial_samples_per_second=5` and a traffic rate of 100 RPS:
 - The first 40-50 requests per second will be sampled at 10% until 5 traces have been sampled
-- The remaining 50-60 requests for that second will be sampled with the latest rate provided by the agent
+- The remaining 50-60 requests for that second will not be sampled.
 
 `-- data 'config.initial_samples_per_second=100' --data 'config.initial_sample_rate=1.0'`
 
