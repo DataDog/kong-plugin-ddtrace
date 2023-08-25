@@ -10,7 +10,7 @@ local strsub = string.sub
 local regex = ngx.re
 
 local DatadogTraceHandler = {
-    VERSION = "0.1.1",
+    VERSION = "0.1.2",
     -- We want to run first so that timestamps taken are at start of the phase.
     -- However, it might be useful to finish spans after other plugins have completed
     -- to more accurately represent the request completion time.
