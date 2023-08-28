@@ -1,3 +1,4 @@
+local new_clock = require "kong.plugins.ddtrace.clock".new
 local new_sampler = require "kong.plugins.ddtrace.sampler".new
 local new_trace_agent_writer = require "kong.plugins.ddtrace.agent_writer".new
 local new_span = require "kong.plugins.ddtrace.span".new
@@ -34,9 +35,7 @@ end
 -- active request. This gets initialized on the first request this plugin handles.
 local agent_writer_timer
 local sampler
-
-local ngx_now            = ngx.now
-
+local clock_now
 
 -- Memoize some data attached to traces
 local ngx_worker_pid = ngx.worker.pid()
@@ -44,13 +43,6 @@ local ngx_worker_id = ngx.worker.id()
 local ngx_worker_count = ngx.worker.count()
 -- local kong_cluster_id = kong.cluster.get_id()
 local kong_node_id = kong.node.get_id()
-
-
--- ngx.now in microseconds
-local function ngx_now_mu()
-    return ngx_now() * 1000000
-end
-
 
 local function get_agent_writer(conf)
     if agent_writer_cache[conf] == nil then
@@ -179,7 +171,7 @@ local function apply_resource_name_rules(uri, rules)
         end
         ::continue::
     end
-        
+
     return table.concat(fragments)
 end
 
@@ -194,6 +186,9 @@ if subsystem == "http" then
             -- though it is rounded up. This can be more-precisely allocated if necessary
             sampler = new_sampler(math.ceil(conf.initial_samples_per_second / ngx_worker_count), conf.initial_sample_rate)
         end
+        if not clock_now then
+          clock_now = new_clock(conf)
+        end
 
         local req = kong.request
         local req_headers = req.get_headers()
@@ -204,8 +199,7 @@ if subsystem == "http" then
         local method = req.get_method()
         local path = req.get_path()
 
-        local ngx_ctx = ngx.ctx
-        local rewrite_start_ns = ngx_ctx.KONG_PROCESSING_START * 1000000LL
+        local rewrite_start_ns = clock_now()
 
         local request_span = new_span(
         conf and conf.service_name or "kong",
@@ -219,6 +213,8 @@ if subsystem == "http" then
         origin)
 
         -- Set datadog tags
+        request_span:set_tag("clock_resolution", (conf.disable_high_resolution_clock and "milliseconds" or "nanoseconds"))
+
         if conf and conf.environment then
             request_span:set_tag("env", conf.environment)
         end
@@ -303,12 +299,8 @@ if subsystem == "http" then
 
     function DatadogTraceHandler:access_p(conf)
         local datadog = get_datadog_context(conf, kong.ctx.plugin)
-        local ngx_ctx = ngx.ctx
-
-        local access_start =
-        ngx_ctx.KONG_ACCESS_START and ngx_ctx.KONG_ACCESS_START * 1000
-        or ngx_now_mu()
-        local proxy_span = get_or_add_proxy_span(datadog, access_start * 1000LL)
+        local access_start = clock_now(ngx.ctx.KONG_ACCESS_START)
+        local proxy_span = get_or_add_proxy_span(datadog, access_start)
 
         propagator.inject(proxy_span)
     end
@@ -322,12 +314,8 @@ if subsystem == "http" then
 
     function DatadogTraceHandler:header_filter_p(conf) -- luacheck: ignore 212
         local datadog = get_datadog_context(conf, kong.ctx.plugin)
-        local ngx_ctx = ngx.ctx
-        local header_filter_start_mu =
-        ngx_ctx.KONG_HEADER_FILTER_STARTED_AT and ngx_ctx.KONG_HEADER_FILTER_STARTED_AT * 1000
-        or ngx_now_mu()
-
-        get_or_add_proxy_span(datadog, header_filter_start_mu * 1000LL)
+        local header_filter_start_mu = clock_now(ngx.ctx.KONG_HEADER_FILTER_STARTED_AT)
+        get_or_add_proxy_span(datadog, header_filter_start_mu)
     end
 
 
@@ -363,19 +351,15 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
         return
     end
 
-    local now_mu = ngx_now_mu()
     local datadog = get_datadog_context(conf, kong.ctx.plugin)
+    local now = clock_now(ngx.ctx.KONG_BODY_FILTER_ENDED_AT)
     local ngx_ctx = ngx.ctx
     local request_span = datadog.request_span
-    local proxy_span = get_or_add_proxy_span(datadog, now_mu * 1000LL)
+    local proxy_span = get_or_add_proxy_span(datadog, now)
     local agent_writer = get_agent_writer(conf)
 
-    local proxy_finish_mu =
-    ngx_ctx.KONG_BODY_FILTER_ENDED_AT and ngx_ctx.KONG_BODY_FILTER_ENDED_AT * 1000
-    or now_mu
-    local request_finish_mu =
-    ngx_ctx.KONG_LOG_START and ngx_ctx.KONG_LOG_START * 1000
-    or now_mu
+    local proxy_finish_mu = now
+    local request_finish_mu = now
 
     -- TODO: consider handling stream subsystem
 
@@ -420,8 +404,8 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
     end
     tag_with_service_and_route(proxy_span)
 
-    proxy_span:finish(proxy_finish_mu * 1000LL)
-    request_span:finish(request_finish_mu * 1000LL)
+    proxy_span:finish(proxy_finish_mu)
+    request_span:finish(request_finish_mu)
     agent_writer:add({request_span, proxy_span})
 end
 

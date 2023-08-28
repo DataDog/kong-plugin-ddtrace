@@ -1,0 +1,28 @@
+name: main
+on: [push, workflow_dispatch]
+
+jobs:
+  format:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup lua
+        run: |
+          sudo apt update
+          sudo apt install -y lua5.3 luarocks liblua5.3-dev
+          sudo luarocks install luacheck
+      - run: luacheck kong spec
+
+  run-test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: Kong/kong-pongo-action@v1
+        with:
+          kong_version: stable
+          pongo_version: latest
+      - run: pongo run --no-datadog-agent -- --coverage
+      - name: Publish summary
+        run: |
+          beg=$( grep -n "Summary" < luacov.report.out | cut -d ':' -f1 )
+          tail --lines=+${beg} luacov.report.out >> $GITHUB_STEP_SUMMARY
