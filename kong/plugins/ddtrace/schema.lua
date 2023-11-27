@@ -41,7 +41,7 @@ local validate_static_tags = function(tags)
 end
 
 local function allow_referenceable(field)
-    if kong.version_num >= 2008000 then
+    if kong and kong.version_num >= 2008000 then
         field.referenceable = true
     end
     return field
