@@ -41,6 +41,32 @@ If you are using the [Kong secrets management](https://docs.konghq.com/gateway/l
 
 `--data 'config.agent_endpoint='{vault://env/agent-trace-endpoint}'`
 
+If you are using Helm with Kubernetes, you can dynamically refer the host IP of the datadog agent. Due to the limit of Kong, `{vault://}` only works for the beginning of the string, therefore, you need to specify the host IP, port and trace version other than `agent_endpoint`. We will construct the endpoint according to the IP and port in the plugin.
+
+For example, there is a Helm Kong values.yaml file
+```yaml
+env:
+...
+  KONG_DATADOG_AGENT_HOST:
+    valueFrom:
+      fieldRef:
+        fieldPath: status.hostIP
+...
+dblessConfig:
+  config:
+    _format_version: "2.1"
+    plugins:
+      - name: ddtrace
+        config:
+          service_name: kong-ddtrace
+          host: "{vault://env/KONG_DATADOG_AGENT_HOST}"
+          port: "8126"
+          version: "v0.4"
+          environment: 'dev'
+...
+```
+
+
 ### Service Name
 
 The service name represents the application or component that is producing traces. All traces created by this plugin will use the configured service name.
