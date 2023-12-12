@@ -40,14 +40,15 @@ local validate_static_tags = function(tags)
     return true
 end
 
+-- make a field referenceable if kong version >= 2.8.0 and Konnect
 local function allow_referenceable(field)
-    if kong.version_num >= 2008000 then
-        field.referenceable = true
+    -- assumption kong.version_num is not available in Konnect
+    if (not kong) or (kong and kong.version_num >= 2008000) then
+        field.referenceable = true -- kong version >= 2.8.0 or Konnect
     end
     return field
 end
 
--- make a field referenceable if kong version >= 2.8.0
 local resource_name_rule = Schema.define {
     type = "record",
     fields = {
