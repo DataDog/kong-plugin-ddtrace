@@ -179,7 +179,7 @@ local function apply_resource_name_rules(uri, rules)
         end
         ::continue::
     end
-        
+
     return table.concat(fragments)
 end
 
@@ -418,7 +418,13 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
     if conf and conf.include_credential and ngx_ctx.authenticated_credential then
         request_span:set_tag("kong.credential", ngx_ctx.authenticated_credential.id)
     end
-    tag_with_service_and_route(proxy_span)
+    if conf and conf.include_shared_traces and kong.ctx.shared.traces then
+      for k, v in pairs(kong.ctx.shared.traces) do
+        request_span:set_tag(k, v)
+      end
+    end
+
+  tag_with_service_and_route(proxy_span)
 
     proxy_span:finish(proxy_finish_mu * 1000LL)
     request_span:finish(request_finish_mu * 1000LL)

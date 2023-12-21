@@ -71,6 +71,7 @@ return {
                 { resource_name_rule = { type = "array", elements = resource_name_rule } },
                 { initial_samples_per_second = { type = "integer", default = 100, gt = 0 } },
                 { initial_sample_rate = { type = "number", default = nil, between = {0, 1 } } },
+                { include_shared_traces = { type = "boolean", default = false, description = "Include all the key value pairs listed in kong.ctx.shared.traces variable as part of the request_span" } }
             },
         }, },
     },
