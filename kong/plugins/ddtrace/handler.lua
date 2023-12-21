@@ -2,7 +2,8 @@ local new_sampler = require "kong.plugins.ddtrace.sampler".new
 local new_trace_agent_writer = require "kong.plugins.ddtrace.agent_writer".new
 local new_span = require "kong.plugins.ddtrace.span".new
 local propagator = require "kong.plugins.ddtrace.propagation"
-
+local kong = kong
+local pairs = pairs
 local pcall = pcall
 local subsystem = ngx.config.subsystem
 local fmt = string.format
@@ -420,7 +421,11 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
     end
     if conf and conf.include_shared_traces and kong.ctx.shared.traces then
       for k, v in pairs(kong.ctx.shared.traces) do
-        request_span:set_tag(k, v)
+        if type(v) ~= "table" then
+          request_span:set_tag(k, tostring(v))
+        else
+          kong.log.err("Can only add string tags to traces. Skipping tag: " .. k)
+        end
       end
     end
 
