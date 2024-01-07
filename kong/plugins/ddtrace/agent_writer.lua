@@ -8,6 +8,7 @@ local agent_writer_mt = {
 }
 
 local function new(http_endpoint, sampler, tracer_version)
+    kong.log.notice("traces will be sent to the agent at " .. http_endpoint)
     return setmetatable({
         http_endpoint = http_endpoint,
         sampler = sampler,

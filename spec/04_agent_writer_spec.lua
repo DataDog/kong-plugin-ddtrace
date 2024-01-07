@@ -15,6 +15,13 @@ resty_http.new = function(...)
     return setmetatable({}, resty_http_mt)
 end
 
+-- stub implementation of kong.log.notice
+_G.kong = {
+    log = {
+        notice = function(msg) end,
+    },
+}
+
 local new_agent_writer = require "kong.plugins.ddtrace.agent_writer".new
 local new_sampler = require "kong.plugins.ddtrace.sampler".new
 local new_span = require "kong.plugins.ddtrace.span".new
