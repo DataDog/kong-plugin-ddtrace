@@ -37,7 +37,7 @@ Some options can be set using environment variables or vault references.
 
 The hostname or IP that will be used to connect to the agent.
 
-`--data 'config.agent_endpoint=your-agent-address'`
+`--data 'config.agent_host=your-agent-address'`
 
 This value can use vault references. By default, the value of the environment variable `DD_AGENT_HOST` is used by resolving `vault://env/dd-agent-host`.
 When this variable is not set, the default is `localhost`.
@@ -59,7 +59,7 @@ dblessConfig:
       - name: ddtrace
         config:
           service_name: kong-ddtrace
-          agent_host: "{vault://env/KONG_DATADOG_AGENT_HOST}"
+          agent_host: "{vault://env/dd-agent-host}"
           environment: 'dev'
 ...
 ```
@@ -68,7 +68,7 @@ dblessConfig:
 
 The URL that will be used to connect to the agent. The value should not include the trailing `/` character.
 
---data 'config.trace_agent_url=http://localhost:8126'
+`--data 'config.trace_agent_url=http://localhost:8126'`
 
 This value can use vault references. By default, the value of the environment variale `DD_TRACE_AGENT_URL` is used by resolving `vault://env/dd-trace-agent-url`.
 When this varuable is not set, the default is `http://localhost:8126`.
@@ -78,7 +78,7 @@ When this varuable is not set, the default is `http://localhost:8126`.
 The full URL for submitting traces to the agent. It is preferred to use `agent_host` or `trace_agent_url` options instead.
 This option will be deprecated in future releases.
 
---data config.agent_endpoint=http://localhost:8126/v0.4/traces'.
+`--data config.agent_endpoint=http://localhost:8126/v0.4/traces'`
 
 This value can use vault references. The default value is nil.
 
@@ -183,10 +183,10 @@ kong migrations bootstrap
 export KONG_PLUGINS=bundled,ddtrace
 kong start
 
-# Create a service named example service that handles requests for mockbin.org and routes requests for example.com to that endpoint.
-curl -i -X POST --url http://localhost:8001/services/ --data 'name=example-service' --data 'url=http://mockbin.org'
+# Create a service named example service that handles requests for httpbin.org and routes requests for example.com to that endpoint.
+curl -i -X POST --url http://localhost:8001/services/ --data 'name=example-service' --data 'url=http://httpbin.org'
 curl -i -X POST --url http://localhost:8001/services/example-service/routes --data 'hosts[]=example.com'
-curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --data 'name=ddtrace' --data 'config.agent_endpoint=http://datadog-agent:8126/v0.4/traces'
+curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --data 'name=ddtrace' --data 'config.agent_host=datadog-agent'
 
 curl --header 'Host: example.com' http://localhost:8000/headers
 ```
