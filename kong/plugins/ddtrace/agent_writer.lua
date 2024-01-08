@@ -7,10 +7,25 @@ local agent_writer_mt = {
     __index = agent_writer_methods,
 }
 
-local function new(http_endpoint, sampler, tracer_version)
-    kong.log.notice("traces will be sent to the agent at " .. http_endpoint)
+local function new(conf, sampler, tracer_version)
+    -- traces_endpoint is determined by the configuration with this
+    -- order of precedence:
+    -- - use trace_agent_url if set
+    -- - use agent_host:agent_port if agent_host is set
+    -- - use agent_endpoint if set but warn that it is deprecated
+    -- - if nothing is set, default to http://localhost:8126/v0.4/traces
+    local traces_endpoint = string.format("http://localhost:%d/v0.4/traces", conf.trace_agent_port)
+    if conf.trace_agent_url then
+        traces_endpoint = conf.trace_agent_url .. "/v0.4/traces"
+    elseif conf.agent_host then
+        traces_endpoint = string.format("http://%s:%d/v0.4/traces", conf.agent_host, conf.trace_agent_port)
+    elseif conf.agent_endpoint then
+        kong.log.warn("agent_endpoint is deprecated. Please use trace_agent_url or agent_host instead.")
+        traces_endpoint = conf.agent_endpoint
+    end
+    kong.log.notice("traces will be sent to the agent at " .. traces_endpoint)
     return setmetatable({
-        http_endpoint = http_endpoint,
+        traces_endpoint = traces_endpoint,
         sampler = sampler,
         tracer_version,
         trace_segments = {},
@@ -40,13 +55,13 @@ function agent_writer_methods:flush()
     self.trace_segments = {}
     self.trace_segments_n = 0
 
-    if self.http_endpoint == nil or self.http_endpoint == ngx.null then
+    if self.traces_endpoint == nil or self.traces_endpoint == ngx.null then
         kong.log.err("no useful endpoint to send payload")
         return true
     end
 
     local httpc = resty_http.new()
-    local res, err = httpc:request_uri(self.http_endpoint, {
+    local res, err = httpc:request_uri(self.traces_endpoint, {
         method = "POST",
         headers = {
             ["content-type"] = "application/msgpack",
