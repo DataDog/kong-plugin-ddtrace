@@ -65,7 +65,7 @@ return {
             fields = {
                 { service_name = { type = "string", required = true, default = "kong" } },
                 { environment = { type = "string", default = "none" } },
-                -- nil values for agent address details are resolved in handler get_agent_writer
+                -- empty or nil values for agent address details are resolved in handler get_agent_writer
                 { agent_host = allow_referenceable(typedefs.host({ default = "{vault://env/dd-agent-host}" })) },
                 { trace_agent_port = { type = "integer", default = 8126, gt = 0 } },
                 { trace_agent_url = allow_referenceable(typedefs.url({ default = "{vault://env/dd-trace-agent-url}" })) },
