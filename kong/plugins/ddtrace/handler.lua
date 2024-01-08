@@ -54,13 +54,7 @@ end
 
 local function get_agent_writer(conf)
     if agent_writer_cache[conf] == nil then
-        if conf.host then
-            local host = conf.host
-            local port = conf.port
-            local version = conf.version
-            conf.agent_endpoint = string.format("http://%s:%d/%s/traces", host, port, version)
-        end
-        agent_writer_cache[conf] = new_trace_agent_writer(conf.agent_endpoint, sampler, DatadogTraceHandler.VERSION)
+        agent_writer_cache[conf] = new_trace_agent_writer(conf, sampler, DatadogTraceHandler.VERSION)
     end
     return agent_writer_cache[conf]
 end

@@ -19,9 +19,9 @@ luarocks install kong-plugin-ddtrace
 After kong is started/restarted, the plugin can be enabled. One example:
 ```bash
 # Enabled globally
-curl -i -X POST --url http://localhost:8001/plugins/ --data 'name=ddtrace' --data 'config.agent_endpoint=http://localhost:8126/v0.4/traces'
+curl -i -X POST --url http://localhost:8001/plugins/ --data 'name=ddtrace'
 # Enabled for specific service only
-curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --data 'name=ddtrace' --data 'config.agent_endpoint=http://localhost:8126/v0.4/traces'
+curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --data 'name=ddtrace'
 ```
 
 If the datadog agent is not reachable on `http://localhost:8126`, then you will need to configure this as well.
@@ -31,23 +31,23 @@ If the datadog agent is not reachable on `http://localhost:8126`, then you will 
 This plugin supports a number of configuration options. These can be supplied when enabling the plugin by providing additional `--data` options to the `curl` request.
 The option is prefixed by `config`, eg: to configure the service name, the `curl` option will be represented as `--data 'config.service_name=your-preferred-name'`.
 
-### Agent Trace Endpoint
+Some options can be set using environment variables or vault references.
 
-The address where this plugin will submit traces to the datadog agent. The default is `http://localhost:8126/v0.4/traces`.
+### Agent Host
 
-`--data 'config.agent_endpoint=http://your-agent-address:8126/v0.4/traces'`
+The hostname or IP that will be used to connect to the agent.
 
-If you are using the [Kong secrets management](https://docs.konghq.com/gateway/latest/kong-enterprise/secrets-management/) system, you can pass a reference to this field as well
+`--data 'config.agent_host=your-agent-address'`
 
-`--data 'config.agent_endpoint='{vault://env/agent-trace-endpoint}'`
+This value can use vault references. By default, the value of the environment variable `DD_AGENT_HOST` is used by resolving `vault://env/dd-agent-host`.
+When this variable is not set, the default is `localhost`.
 
-If you are using Helm with Kubernetes, you can dynamically refer the host IP of the datadog agent. Due to the limit of Kong, `{vault://}` only works for the beginning of the string, therefore, you need to specify the host IP, port and trace version other than `agent_endpoint`. We will construct the endpoint according to the IP and port in the plugin.
+In Kubernetes helm chart deployments of Kong, the value can be passed in using a field reference.
 
-For example, there is a Helm Kong values.yaml file
 ```yaml
 env:
 ...
-  KONG_DATADOG_AGENT_HOST:
+  DD_AGENT_HOST:
     valueFrom:
       fieldRef:
         fieldPath: status.hostIP
@@ -59,13 +59,28 @@ dblessConfig:
       - name: ddtrace
         config:
           service_name: kong-ddtrace
-          host: "{vault://env/KONG_DATADOG_AGENT_HOST}"
-          port: "8126"
-          version: "v0.4"
+          agent_host: "{vault://env/dd-agent-host}"
           environment: 'dev'
 ...
 ```
 
+### Agent URL
+
+The URL that will be used to connect to the agent. The value should not include the trailing `/` character.
+
+`--data 'config.trace_agent_url=http://localhost:8126'`
+
+This value can use vault references. By default, the value of the environment variale `DD_TRACE_AGENT_URL` is used by resolving `vault://env/dd-trace-agent-url`.
+When this varuable is not set, the default is `http://localhost:8126`.
+
+### Agent Endpoint (deprecated)
+
+The full URL for submitting traces to the agent. It is preferred to use `agent_host` or `trace_agent_url` options instead.
+This option will be deprecated in future releases.
+
+`--data config.agent_endpoint=http://localhost:8126/v0.4/traces'`
+
+This value can use vault references. The default value is nil.
 
 ### Service Name
 
@@ -168,10 +183,10 @@ kong migrations bootstrap
 export KONG_PLUGINS=bundled,ddtrace
 kong start
 
-# Create a service named example service that handles requests for mockbin.org and routes requests for example.com to that endpoint.
-curl -i -X POST --url http://localhost:8001/services/ --data 'name=example-service' --data 'url=http://mockbin.org'
+# Create a service named example service that handles requests for httpbin.org and routes requests for example.com to that endpoint.
+curl -i -X POST --url http://localhost:8001/services/ --data 'name=example-service' --data 'url=http://httpbin.org'
 curl -i -X POST --url http://localhost:8001/services/example-service/routes --data 'hosts[]=example.com'
-curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --data 'name=ddtrace' --data 'config.agent_endpoint=http://datadog-agent:8126/v0.4/traces'
+curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --data 'name=ddtrace' --data 'config.agent_host=datadog-agent'
 
 curl --header 'Host: example.com' http://localhost:8000/headers
 ```
@@ -181,7 +196,7 @@ If the `DD_API_KEY` was correctly set, then the trace should appear at https://a
 
 ### Built-in Tests
 
-The built-in tests can be executed by running `pongo test`.
+The built-in tests can be executed by running `pongo run`.
 
 A report for test coverage is produced when run with additional options: `pongo run -- --coverage`.
 

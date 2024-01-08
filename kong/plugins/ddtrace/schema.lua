@@ -65,10 +65,11 @@ return {
             fields = {
                 { service_name = { type = "string", required = true, default = "kong" } },
                 { environment = { type = "string", default = "none" } },
-                { host = allow_referenceable(typedefs.ip()) },
-                { port = { type = "integer", default = 8126, gt = 0 } },
-                { version = { type = "string", default = "none" } },
-                { agent_endpoint = allow_referenceable(typedefs.url({ default = "http://localhost:8126/v0.4/traces" }))},
+                -- empty or nil values for agent address details are resolved in handler get_agent_writer
+                { agent_host = allow_referenceable(typedefs.host({ default = "{vault://env/dd-agent-host}" })) },
+                { trace_agent_port = { type = "integer", default = 8126, gt = 0 } },
+                { trace_agent_url = allow_referenceable(typedefs.url({ default = "{vault://env/dd-trace-agent-url}" })) },
+                { agent_endpoint = allow_referenceable(typedefs.url({ default = nil }))},
                 { static_tags = { type = "array", elements = static_tag,
                 custom_validator = validate_static_tags } },
                 { resource_name_rule = { type = "array", elements = resource_name_rule } },
