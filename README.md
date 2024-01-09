@@ -71,7 +71,7 @@ The URL that will be used to connect to the agent. The value should not include 
 `--data 'config.trace_agent_url=http://localhost:8126'`
 
 This value can use vault references. By default, the value of the environment variale `DD_TRACE_AGENT_URL` is used by resolving `vault://env/dd-trace-agent-url`.
-When this varuable is not set, the default is `http://localhost:8126`.
+When this variable is not set, the default is `http://localhost:8126`.
 
 ### Agent Endpoint (deprecated)
 
@@ -85,16 +85,30 @@ This value can use vault references. The default value is nil.
 ### Service Name
 
 The service name represents the application or component that is producing traces. All traces created by this plugin will use the configured service name.
-If not configured, a default value of `kong` will be used.
 
 `--data 'config.service_name=your-preferred-name'`
+
+This value can use vault references. By default, the value of the environment variale `DD_SERVICE` is used by resolving `vault://env/dd-service`.
+When this variable is not set, the default is `kong`.
 
 ### Environment
 
 The environment is a larger grouping of related services, such as `prod`, `staging` or `dev`.
-If not configured, it will not be sent, and traces will be categorized as `env:none`.
 
 `--data 'config.environment=prod'`
+
+This value can use vault references. By default, the value of the environment variale `DD_ENV` is used by resolving `vault://env/dd-env`.
+When this variable is not set, spans will not have an `environment` tag.
+
+### Version
+
+The version is a user-defined value for tracking a application version, or a versioned combination of applications, configuration, and other assets.
+This is useful in both static deployments and CI/CD workflows.
+
+`--data 'config.version=1234'`
+
+This value can use vault references. By default, the value of the environment variale `DD_VERSION` is used by resolving `vault://env/dd-version`.
+When this variable is not set, spans will not have a `version` tag.
 
 ### Sampling Controls
 
