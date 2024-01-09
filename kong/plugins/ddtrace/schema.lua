@@ -41,7 +41,7 @@ local validate_static_tags = function(tags)
 end
 
 local function env_vault_is_enabled()
-    local vaults = self and self.configuration and self.configuration.loaded_vaults
+    local vaults = kong and kong.configuration and kong.configuration.loaded_vaults
     if vaults then
         for name in pairs(vaults) do
             if name == "env" then
