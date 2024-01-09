@@ -219,8 +219,13 @@ if subsystem == "http" then
         origin)
 
         -- Set datadog tags
-        if conf and conf.environment then
-            request_span:set_tag("env", conf.environment)
+        if conf then
+            if conf.environment then
+                request_span:set_tag("env", conf.environment)
+            end
+            if conf.version then
+                request_span:set_tag("version", conf.version)
+            end
         end
 
         -- TODO: decide about deferring sampling decision until injection or not
