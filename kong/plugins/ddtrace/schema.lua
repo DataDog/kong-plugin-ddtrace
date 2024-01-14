@@ -81,19 +81,18 @@ return {
         { config = {
             type = "record",
             fields = {
-                { service_name = allow_referenceable({ type = "string", required = true, default = "{vault://env/dd-service}" }, "kong") },
-                { environment = allow_referenceable({ type = "string", default = "{vault://env/dd-env}" }, nil) },
-                -- priority of values for agent address details are resolved in new_trace_agent_writer
-                { agent_host = allow_referenceable(typedefs.host({ default = "{vault://env/dd-agent-host}" }), "localhost") },
+                -- defaults are resolved in handler.lua
+                { service_name = allow_referenceable({ type = "string" }) },
+                { environment = allow_referenceable({ type = "string" }) },
+                { agent_host = allow_referenceable(typedefs.host()) },
                 { trace_agent_port = { type = "integer", default = 8126, gt = 0 } },
-                { trace_agent_url = allow_referenceable(typedefs.url({ default = "{vault://env/dd-trace-agent-url}" }), nil) },
-                { agent_endpoint = allow_referenceable(typedefs.url({ default = nil }), nil)},
-                { static_tags = { type = "array", elements = static_tag,
-                custom_validator = validate_static_tags } },
+                { trace_agent_url = allow_referenceable(typedefs.url()) },
+                { agent_endpoint = allow_referenceable(typedefs.url({ default = nil })) },
+                { static_tags = { type = "array", elements = static_tag, custom_validator = validate_static_tags } },
                 { resource_name_rule = { type = "array", elements = resource_name_rule } },
                 { initial_samples_per_second = { type = "integer", default = 100, gt = 0 } },
                 { initial_sample_rate = { type = "number", default = nil, between = {0, 1 } } },
-                { version = allow_referenceable({ type = "string", default = "{vault://env/dd-version}" }, nil) },
+                { version = allow_referenceable({ type = "string" }) },
             },
         }, },
     },

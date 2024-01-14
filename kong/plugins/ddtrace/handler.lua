@@ -9,6 +9,12 @@ local fmt = string.format
 local strsub = string.sub
 local regex = ngx.re
 
+local DD_ENV = os.getenv("DD_ENV")
+local DD_SERVICE = os.getenv("DD_SERVICE")
+local DD_VERSION = os.getenv("DD_VERSION")
+local DD_AGENT_HOST = os.getenv("DD_AGENT_HOST")
+local DD_TRACE_AGENT_URL = os.getenv("DD_TRACE_AGENT_URL")
+
 local DatadogTraceHandler = {
     VERSION = "0.1.2",
     -- We want to run first so that timestamps taken are at start of the phase.
@@ -54,7 +60,25 @@ end
 
 local function get_agent_writer(conf)
     if agent_writer_cache[conf] == nil then
-        agent_writer_cache[conf] = new_trace_agent_writer(conf, sampler, DatadogTraceHandler.VERSION)
+        -- traces_endpoint is determined by the configuration with this
+        -- order of precedence:
+        -- - use trace_agent_url if set
+        -- - use agent_host:agent_port if agent_host is set
+        -- - use agent_endpoint if set but warn that it is deprecated
+        -- - if nothing is set, default to http://localhost:8126/v0.4/traces
+        local traces_endpoint = string.format("http://localhost:%d/v0.4/traces", conf.trace_agent_port)
+        local trace_agent_url = conf.trace_agent_url or DD_TRACE_AGENT_URL
+        local agent_host = conf.agent_host or DD_AGENT_HOST
+        if trace_agent_url then
+            traces_endpoint = trace_agent_url .. "/v0.4/traces"
+        elseif agent_host then
+            traces_endpoint = string.format("http://%s:%d/v0.4/traces", agent_host, conf.trace_agent_port)
+        elseif conf.agent_endpoint then
+            kong.log.warn("agent_endpoint is deprecated. Please use trace_agent_url or agent_host instead.")
+            traces_endpoint = conf.agent_endpoint
+        end
+        kong.log.notice("traces will be sent to the agent at " .. traces_endpoint)
+        agent_writer_cache[conf] = new_trace_agent_writer(traces_endpoint, sampler, DatadogTraceHandler.VERSION)
     end
     return agent_writer_cache[conf]
 end
@@ -208,7 +232,7 @@ if subsystem == "http" then
         local rewrite_start_ns = ngx_ctx.KONG_PROCESSING_START * 1000000LL
 
         local request_span = new_span(
-        conf and conf.service_name or "kong",
+        (conf and conf.service_name) or DD_SERVICE or "kong",
         "kong.plugin.ddtrace",
         method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule), -- TODO: decrease cardinality of path value
         trace_id,
@@ -219,13 +243,13 @@ if subsystem == "http" then
         origin)
 
         -- Set datadog tags
-        if conf then
-            if conf.environment then
-                request_span:set_tag("env", conf.environment)
-            end
-            if conf.version then
-                request_span:set_tag("version", conf.version)
-            end
+        local environment = (conf and conf.environment) or DD_ENV
+        if environment then
+            request_span:set_tag("env", environment)
+        end
+        local version = (conf and conf.version) or DD_VERSION
+        if version then
+            request_span:set_tag("version", version)
         end
 
         -- TODO: decide about deferring sampling decision until injection or not
