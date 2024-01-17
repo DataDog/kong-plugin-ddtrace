@@ -162,6 +162,22 @@ Example outcomes:
 | GET | /favicon.ico | none | GET /favicon.ico |
 
 
+### Tag root span with HTTP Headers (DD_TRACE_HEADER_TAGS)
+
+For security reasons, only a subset of HTTP headers are reported as tags. It is possible to configure the plugin to report specific HTTP Headers as span tags.
+Nonetheless, be careful on which headers you are deciding to add as a span tag.
+
+Learn more about [HTTP header collection](https://docs.datadoghq.com/tracing/configure_data_security/?tab=net#collect-headers)
+
+Example setup:
+
+````sh
+# curl
+--data 'config.header_tags[1].header=Ratelimit-Limit' --data 'config.header_tags[1].tag=rate-limit'
+
+# The tag can be omitted, a tag following this format will be used: `http.<request|response>.headers.<http-header-name>`
+--data 'config.header_tags[1].header=Ratelimit-Limit'
+````
 
 **NOTES**
 

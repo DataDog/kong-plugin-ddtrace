@@ -6,6 +6,7 @@ It is encoded in msgpack using the customized encoder.
 local ffi = require "ffi"
 
 local utils = require "kong.tools.utils"
+local dd_utils = require "kong.plugins.ddtrace.utils"
 local rand_bytes = utils.get_rand_bytes
 local byte = string.byte
 
@@ -123,6 +124,22 @@ function span_methods:each_tag()
     local tags = self.tags
     if tags == nil then return function() end end
     return next, tags
+end
+
+
+function span_methods:set_http_header_tags(header_tags, get_request_header, get_response_header)
+    for header_name, tag_entry in pairs(header_tags) do
+        local req_header_value = get_request_header(header_name)
+        local res_header_value = get_response_header(header_name)
+
+        if req_header_value then
+          local tag = (tag_entry.normalized and "http.request.headers." .. tag_entry.value) or tag_entry.value
+          self:set_tag(tag, dd_utils.concat(req_header_value, ","))
+        elseif res_header_value then
+          local tag = (tag_entry.normalized and "http.response.headers." .. tag_entry.value) or tag_entry.value
+          self:set_tag(tag, dd_utils.concat(res_header_value, ","))
+        end
+    end
 end
 
 
