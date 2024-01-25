@@ -135,7 +135,9 @@ function span_methods:set_http_header_tags(header_tags, get_request_header, get_
         if req_header_value then
           local tag = (tag_entry.normalized and "http.request.headers." .. tag_entry.value) or tag_entry.value
           self:set_tag(tag, dd_utils.concat(req_header_value, ","))
-        elseif res_header_value then
+        end
+
+        if res_header_value then
           local tag = (tag_entry.normalized and "http.response.headers." .. tag_entry.value) or tag_entry.value
           self:set_tag(tag, dd_utils.concat(res_header_value, ","))
         end
