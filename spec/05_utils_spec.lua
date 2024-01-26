@@ -29,13 +29,17 @@ describe("utils.normalize_headers_tag", function()
     local header_tags = {
       { header = "ConTeNt-Type", tag = "" },
       { header = "D!ata__d/o!g", tag = "_dd.header" },
+      { header = "foo", tag = " " },
+      { header = "bar", tag = " mytag      " },
     }
 
     local norm_header_tags = utils.normalize_header_tags(header_tags)
 
-    assert.equal(count_table(norm_header_tags), 2)
+    assert.equal(count_table(norm_header_tags), 4)
     assert.same(norm_header_tags["content-type"], { normalized = true, value = "content-type" })
     assert.same(norm_header_tags["d_ata__d_o_g"], { normalized = false, value = "_dd.header" })
+    assert.same(norm_header_tags["foo"], { normalized = true, value = "foo" })
+    assert.same(norm_header_tags["bar"], { normalized = false, value = "mytag" })
   end)
 end)
 
