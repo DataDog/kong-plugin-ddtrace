@@ -17,6 +17,30 @@ local PROTECTED_TAGS = {
     "peer.hostname",
 }
 
+local header_tag = Schema.define {
+    type = "record",
+    fields = {
+        { header = { type = "string", required = true } },
+        { tag = { type = "string", not_one_of = PROTECTED_TAGS } },
+    },
+}
+
+-- TODO: check if we could use a set instead
+local validate_header_tag = function(tags)
+    if type(tags) ~= "table" then
+        return nil
+    end
+    local found = {}
+    for i = 1, #tags do
+        local key = tags[i].header
+        if found[key] then
+            return nil, "repeated header are not allowed: " .. key
+        end
+        found[key] = true
+    end
+    return true
+end
+
 local static_tag = Schema.define {
     type = "record",
     fields = {
@@ -94,6 +118,7 @@ return {
                 { initial_samples_per_second = { type = "integer", default = 100, gt = 0 } },
                 { initial_sample_rate = { type = "number", default = nil, between = {0, 1 } } },
                 { version = allow_referenceable({ type = "string", default = "{vault://env/dd-version}" }, nil) },
+                { header_tags = { type = "array", elements = header_tag, custom_validator = validate_header_tag } },
             },
         }, },
     },

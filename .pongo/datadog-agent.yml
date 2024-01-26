@@ -9,5 +9,6 @@ services:
     - '/sys/fs/cgroup/:/host/sys/fs/cgroup:ro'
     environment:
     - DD_API_KEY
+    - DD_SITE
     networks:
     - ${NETWORK_NAME}

@@ -2,6 +2,7 @@ local new_sampler = require "kong.plugins.ddtrace.sampler".new
 local new_trace_agent_writer = require "kong.plugins.ddtrace.agent_writer".new
 local new_span = require "kong.plugins.ddtrace.span".new
 local propagator = require "kong.plugins.ddtrace.propagation"
+local utils = require "kong.plugins.ddtrace.utils"
 
 local pcall = pcall
 local subsystem = ngx.config.subsystem
@@ -183,8 +184,11 @@ local function apply_resource_name_rules(uri, rules)
     return table.concat(fragments)
 end
 
+local header_tags
+
 if subsystem == "http" then
     initialize_request = function(conf, ctx)
+        -- TODO: Support Kong 3.5.x `plugin:configure`
         -- one-time setup of the timer and sampler, only on the first request
         if not agent_writer_timer then
             agent_writer_timer = ngx.timer.every(2.0, flush_agent_writers)
@@ -193,6 +197,9 @@ if subsystem == "http" then
             -- each worker gets a chunk of the overall samples_per_second value as their per-second limit
             -- though it is rounded up. This can be more-precisely allocated if necessary
             sampler = new_sampler(math.ceil(conf.initial_samples_per_second / ngx_worker_count), conf.initial_sample_rate)
+        end
+        if not header_tags and (conf and conf.header_tags) then
+            header_tags = utils.normalize_header_tags(conf.header_tags)
         end
 
         local req = kong.request
@@ -416,6 +423,8 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
             request_span:set_tag("error", true)
             request_span.error = status_code
         end
+
+        request_span:set_http_header_tags(header_tags, kong.request.get_header, kong.response.get_header)
     end
     if ngx_ctx.authenticated_consumer then
         request_span:set_tag("kong.consumer", ngx_ctx.authenticated_consumer.id)
