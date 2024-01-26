@@ -39,10 +39,11 @@ The hostname or IP that will be used to connect to the agent.
 
 `--data 'config.agent_host=your-agent-address'`
 
-This value can use vault references. By default, the value of the environment variable `DD_AGENT_HOST` is used by resolving `vault://env/dd-agent-host`.
-When this variable is not set, the default is `localhost`.
+This value can also be set using the environment variable `DD_AGENT_HOST`. It can also be configured to use a vault reference.
 
-In Kubernetes helm chart deployments of Kong, the value can be passed in using a field reference.
+The default value is unset, and the effective value is "localhost".
+
+In Kubernetes helm chart deployments of Kong, the value can be passed in using an environment variable or vault reference.
 
 ```yaml
 env:
@@ -59,7 +60,6 @@ dblessConfig:
       - name: ddtrace
         config:
           service_name: kong-ddtrace
-          agent_host: "{vault://env/dd-agent-host}"
           environment: 'dev'
 ...
 ```
@@ -70,8 +70,9 @@ The URL that will be used to connect to the agent. The value should not include 
 
 `--data 'config.trace_agent_url=http://localhost:8126'`
 
-This value can use vault references. By default, the value of the environment variale `DD_TRACE_AGENT_URL` is used by resolving `vault://env/dd-trace-agent-url`.
-When this variable is not set, the default is `http://localhost:8126`.
+This value can also be set using the environment variable `DD_TRACE_AGENT_URL`. It can also be configured with a vault reference.
+
+The default value is unset, and the effective value is "http://localhost:8126".
 
 ### Agent Endpoint (deprecated)
 
@@ -80,7 +81,9 @@ This option will be deprecated in future releases.
 
 `--data config.agent_endpoint=http://localhost:8126/v0.4/traces'`
 
-This value can use vault references. The default value is nil.
+This can be configured with a vault references.
+
+The default value is unset, and the value is ignored if `agent_host` or `trace_agent_url` are configured.
 
 ### Service Name
 
@@ -88,8 +91,9 @@ The service name represents the application or component that is producing trace
 
 `--data 'config.service_name=your-preferred-name'`
 
-This value can use vault references. By default, the value of the environment variale `DD_SERVICE` is used by resolving `vault://env/dd-service`.
-When this variable is not set, the default is `kong`.
+This value can be set using the environment variable `DD_SERVICE`. It can also be configured with a vault reference.
+
+The default value is "kong"
 
 ### Environment
 
@@ -97,8 +101,10 @@ The environment is a larger grouping of related services, such as `prod`, `stagi
 
 `--data 'config.environment=prod'`
 
-This value can use vault references. By default, the value of the environment variale `DD_ENV` is used by resolving `vault://env/dd-env`.
-When this variable is not set, spans will not have an `environment` tag.
+This value can be set using the environment variable `DD_ENV`. It can also be configured with a vault reference.
+
+The default value is unset, and spans produced by the tracer will not have an "env" tag.
+
 
 ### Version
 
@@ -107,8 +113,9 @@ This is useful in both static deployments and CI/CD workflows.
 
 `--data 'config.version=1234'`
 
-This value can use vault references. By default, the value of the environment variale `DD_VERSION` is used by resolving `vault://env/dd-version`.
-When this variable is not set, spans will not have a `version` tag.
+This value can be set using the environment variable `DD_VERSION`. It can also be configured with a vault reference.
+
+The default value is unset, and spans produced by the tracer will not have a "version" tag.
 
 ### Sampling Controls
 
