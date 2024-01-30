@@ -60,25 +60,15 @@ end
 
 local function get_agent_writer(conf)
     if agent_writer_cache[conf] == nil then
-        -- traces_endpoint is determined by the configuration with this
-        -- order of precedence:
-        -- - use trace_agent_url if set
-        -- - use agent_host:agent_port if agent_host is set
-        -- - use agent_endpoint if set but warn that it is deprecated
-        -- - if nothing is set, default to http://localhost:8126/v0.4/traces
-        local traces_endpoint = string.format("http://localhost:%d/v0.4/traces", conf.trace_agent_port)
         local trace_agent_url = conf.trace_agent_url or DD_TRACE_AGENT_URL
         local agent_host = conf.agent_host or DD_AGENT_HOST
-        if trace_agent_url then
-            traces_endpoint = trace_agent_url .. "/v0.4/traces"
-        elseif agent_host then
-            traces_endpoint = string.format("http://%s:%d/v0.4/traces", agent_host, conf.trace_agent_port)
-        elseif conf.agent_endpoint then
-            kong.log.warn("agent_endpoint is deprecated. Please use trace_agent_url or agent_host instead.")
-            traces_endpoint = conf.agent_endpoint
-        end
-        kong.log.notice("traces will be sent to the agent at " .. traces_endpoint)
-        agent_writer_cache[conf] = new_trace_agent_writer(traces_endpoint, sampler, DatadogTraceHandler.VERSION)
+        local agent_config = {
+            trace_agent_url = trace_agent_url,
+            agent_host = agent_host,
+            trace_agent_port = conf.trace_agent_port,
+            agent_endpoint = conf.agent_endpoint,
+        }
+        agent_writer_cache[conf] = new_trace_agent_writer(agent_config, sampler, DatadogTraceHandler.VERSION)
     end
     return agent_writer_cache[conf]
 end

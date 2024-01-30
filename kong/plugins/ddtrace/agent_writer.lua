@@ -7,7 +7,23 @@ local agent_writer_mt = {
     __index = agent_writer_methods,
 }
 
-local function new(traces_endpoint, sampler, tracer_version)
+local function new(conf, sampler, tracer_version)
+    -- traces_endpoint is determined by the configuration with this
+    -- order of precedence:
+    -- - use trace_agent_url if set
+    -- - use agent_host:agent_port if agent_host is set
+    -- - use agent_endpoint if set but warn that it is deprecated
+    -- - if nothing is set, default to http://localhost:8126/v0.4/traces
+    local traces_endpoint = string.format("http://localhost:%d/v0.4/traces", conf.trace_agent_port)
+    if conf.trace_agent_url then
+        traces_endpoint = conf.trace_agent_url .. "/v0.4/traces"
+    elseif conf.agent_host then
+        traces_endpoint = string.format("http://%s:%d/v0.4/traces", conf.agent_host, conf.trace_agent_port)
+    elseif conf.agent_endpoint then
+        kong.log.warn("agent_endpoint is deprecated. Please use trace_agent_url or agent_host instead.")
+        traces_endpoint = conf.agent_endpoint
+    end
+    kong.log.notice("traces will be sent to the agent at " .. traces_endpoint)
     return setmetatable({
         traces_endpoint = traces_endpoint,
         sampler = sampler,
