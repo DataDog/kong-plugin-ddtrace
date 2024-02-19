@@ -424,7 +424,9 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
             request_span.error = status_code
         end
 
-        request_span:set_http_header_tags(header_tags, kong.request.get_header, kong.response.get_header)
+        if header_tags then
+          request_span:set_http_header_tags(header_tags, kong.request.get_header, kong.response.get_header)
+        end
     end
     if ngx_ctx.authenticated_consumer then
         request_span:set_tag("kong.consumer", ngx_ctx.authenticated_consumer.id)
