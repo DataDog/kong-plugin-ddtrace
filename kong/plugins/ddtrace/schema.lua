@@ -119,6 +119,7 @@ return {
                 { initial_sample_rate = { type = "number", default = nil, between = {0, 1 } } },
                 { version = allow_referenceable({ type = "string", default = "{vault://env/dd-version}" }, nil) },
                 { header_tags = { type = "array", elements = header_tag, custom_validator = validate_header_tag } },
+                { max_header_size = { type = "integer", default = 512, between = {0, 512} } },
             },
         }, },
     },

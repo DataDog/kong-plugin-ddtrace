@@ -1,6 +1,5 @@
 local new_sampler = require "kong.plugins.ddtrace.sampler".new
 local new_trace_agent_writer = require "kong.plugins.ddtrace.agent_writer".new
-local new_span = require "kong.plugins.ddtrace.span".new
 local propagator = require "kong.plugins.ddtrace.propagation"
 local utils = require "kong.plugins.ddtrace.utils"
 
@@ -37,7 +36,6 @@ local agent_writer_timer
 local sampler
 
 local ngx_now            = ngx.now
-
 
 -- Memoize some data attached to traces
 local ngx_worker_pid = ngx.worker.pid()
@@ -203,27 +201,18 @@ if subsystem == "http" then
         end
 
         local req = kong.request
-        local req_headers = req.get_headers()
-
-        local trace_id, parent_id, sampling_priority, origin, err = propagator.extract(req_headers)
-        -- propagation errors are logged after the span is created
-
         local method = req.get_method()
         local path = req.get_path()
 
-        local ngx_ctx = ngx.ctx
-        local rewrite_start_ns = ngx_ctx.KONG_PROCESSING_START * 1000000LL
+        local span_options = {
+            service = conf and conf.service_name or "kong",
+            name = "kong.plugin.ddtrace",
+            start_us = ngx.ctx.KONG_PROCESSING_START * 1000000LL,
+            -- TODO: decrease cardinality of path value
+            ressource = method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule)
+        }
 
-        local request_span = new_span(
-        conf and conf.service_name or "kong",
-        "kong.plugin.ddtrace",
-        method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule), -- TODO: decrease cardinality of path value
-        trace_id,
-        nil,
-        parent_id,
-        rewrite_start_ns,
-        sampling_priority,
-        origin)
+        local request_span = propagator.extract_or_create_span(req, span_options, conf.max_header_size)
 
         -- Set datadog tags
         if conf then
@@ -236,7 +225,7 @@ if subsystem == "http" then
         end
 
         -- TODO: decide about deferring sampling decision until injection or not
-        if not sampling_priority then
+        if not request_span.sampling_priority then
             sampler:sample(request_span)
         end
 
@@ -283,10 +272,6 @@ if subsystem == "http" then
             end
         end
 
-        if err then
-            request_span:set_tag("ddtrace.propagation_error", err)
-        end
-
         ctx.datadog = {
             request_span = request_span,
             proxy_span = nil,
@@ -322,7 +307,10 @@ if subsystem == "http" then
         or ngx_now_mu()
         local proxy_span = get_or_add_proxy_span(datadog, access_start * 1000LL)
 
-        propagator.inject(proxy_span)
+        local err = propagator.inject(proxy_span, kong.service.request.set_header, conf.max_header_size)
+        if err then
+          kong.log.error("Failed to inject trace (id: " .. proxy_span.trace_id .. "). Reason: " .. err)
+        end
     end
 
     function DatadogTraceHandler:header_filter(conf) -- luacheck: ignore 212
