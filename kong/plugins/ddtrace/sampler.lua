@@ -119,9 +119,9 @@ local function apply_initial_sample_rate(sampler, span)
 
     sampler.spans_counted = sampler.spans_counted + 1
     -- set limiter metrics, regardless of outcome of initial sampling rate
+    span.meta["_dd.p.dm"] = "-3" -- "RULE"
     span.metrics["_dd.rule_psr"] = sampler.sample_rate
     span.metrics["_dd.limit_psr"] = sampler.effective_rate
-    span.metrics["_dd.p.dm"] = 3
     -- apply initial sampling rate
     local current_decisecond = span.start / 100000000ULL
     local idx = tonumber(current_decisecond % 10)
@@ -138,29 +138,20 @@ local function apply_initial_sample_rate(sampler, span)
 end
 
 
-local function apply_agent_sample_rate(sampler, span) 
-    local service = span.service
-    if not service then
-        service = ""
-    end
-    local env = span.meta["env"]
-    if not env then
-        env = ""
-    end
+local function apply_agent_sample_rate(sampler, span)
+    local service = span.service or ""
+    local env = span.meta["env"] or ""
 
     local sample_rate_key = "service:" .. service .. ",env:" .. env
-    local service_env = sampler.agent_sample_rates[sample_rate_key]
-    if service_env then
-        local sampled = sampling_decision(span, service_env.max_id)
-        span.metrics["_dd.agent_psr"] = service_env.rate
+
+    local rule = sampler.agent_sample_rates[sample_rate_key] or sampler.agent_sample_rates[default_sampling_rate_key]
+    if rule then
+        local sampled = sampling_decision(span, rule.max_id)
+        span.meta["_dd.p.dm"] = "-1" -- "AGENT RATE"
+        span.metrics["_dd.agent_psr"] = rule.rate
         return true, sampled
     end
-    local default = sampler.agent_sample_rates[default_sampling_rate_key]
-    if default then
-        local sampled = sampling_decision(span, default.max_id)
-        span.metrics["_dd.agent_psr"] = default.rate
-        return true, sampled
-    end
+
     return false, false
 end
 
@@ -173,7 +164,6 @@ function sampler_methods:sample(span)
     if self.sample_rate then
         local sampled = apply_initial_sample_rate(self, span)
         -- kong.log.err("sample: initial sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
-        span.metrics["_dd.p.dm"] = 3 -- "RULE"
         if sampled then
             span:set_sampling_priority(2)
         else
@@ -184,7 +174,6 @@ function sampler_methods:sample(span)
     local applied, sampled = apply_agent_sample_rate(self, span)
     -- kong.log.err("sample: agent sample rate: applied = " .. tostring(applied) .. " sampled = " .. tostring(sampled))
     if applied then
-        span.metrics["_dd.p.dm"] = 1 -- "AGENT RATE"
         if sampled then
             span:set_sampling_priority(1)
         else
@@ -194,7 +183,7 @@ function sampler_methods:sample(span)
     end
     -- neither initial-sample or agent-sample rates were applied
     -- fallback is to just sample things
-    span.metrics["_dd.p.dm"] = 0 -- "DEFAULT"
+    span.meta["_dd.p.dm"] = "-0" -- "DEFAULT"
     span:set_sampling_priority(1)
     return true
 end
