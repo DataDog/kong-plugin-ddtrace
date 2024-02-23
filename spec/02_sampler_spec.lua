@@ -9,6 +9,19 @@ _G.kong = {
 }
 
 describe("trace sampler", function()
+    it("default rate #tags", function()
+        local start_time = 1700000000000000000LL
+        local duration = 100000000LL
+        local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
+        local sampler = new_sampler(10, nil)
+        local sampled = sampler:sample(span)
+        assert.is_true(sampled)
+        assert.equal("-0", span.meta["_dd.p.dm"])
+        assert.is_nil(span.metrics["_dd.rule_psr"])
+        assert.is_nil(span.metrics["_dd.limit_psr"])
+        assert.equal(span.metrics["_sampling_priority_v1"], 1)
+        span:finish(start_time + duration)
+    end)
     it("is created with initial limits", function()
         local start_time = 1700000000000000000LL
         local duration = 100000000LL

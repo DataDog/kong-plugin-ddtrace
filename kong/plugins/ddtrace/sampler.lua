@@ -137,14 +137,13 @@ local function apply_initial_sample_rate(sampler, span)
     return false
 end
 
-
 local function apply_agent_sample_rate(sampler, span)
     local service = span.service or ""
     local env = span.meta["env"] or ""
 
     local sample_rate_key = "service:" .. service .. ",env:" .. env
 
-    local rule = sampler.agent_sample_rates[sample_rate_key] or sampler.agent_sample_rates[default_sampling_rate_key]
+    local rule = sampler.agent_sample_rates[sample_rate_key]
     if rule then
         local sampled = sampling_decision(span, rule.max_id)
         span.meta["_dd.p.dm"] = "-1" -- "AGENT RATE"
