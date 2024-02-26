@@ -45,10 +45,6 @@ end
 -- these values are used for agent-based sampling rates
 -- which is applied when the initial sampling rates are exhausted
 local default_sampling_rate_key = "service:,env:"
-local default_sampling_rate_value = {
-    rate = 1.0,
-    max_id = max_id_for_rate(1.0),
-}
 
 local function new(samples_per_second, sample_rate)
     -- pre-calculate the counters used for initial sampling
@@ -76,9 +72,7 @@ local function new(samples_per_second, sample_rate)
         spans_counted = 0,
         effective_rate = sample_rate, -- this is updated when the time rolls over
         last_sample_interval = nil,
-        agent_sample_rates = {
-            [default_sampling_rate_key] = default_sampling_rate_value,
-        },
+        agent_sample_rates = {},
     }, sampler_mt)
 end
 
@@ -143,7 +137,7 @@ local function apply_agent_sample_rate(sampler, span)
 
     local sample_rate_key = "service:" .. service .. ",env:" .. env
 
-    local rule = sampler.agent_sample_rates[sample_rate_key]
+    local rule = sampler.agent_sample_rates[sample_rate_key] or sampler.agent_sample_rates[default_sampling_rate_key]
     if rule then
         local sampled = sampling_decision(span, rule.max_id)
         span.meta["_dd.p.dm"] = "-1" -- "AGENT RATE"
@@ -228,10 +222,7 @@ function sampler_methods:update_sampling_rates(json_payload)
         }
         ::continue::
     end
-    -- make sure the default is still there
-    if not self.agent_sample_rates[default_sampling_rate_key] then
-        self.agent_sample_rates[default_sampling_rate_key] = default_sampling_rate_value
-    end
+
     return parsed_ok
 end
 
