@@ -225,6 +225,11 @@ if subsystem == "http" then
         sampling_priority,
         origin)
 
+        if conf and conf.log_injection then
+          ngx.var.datadog_trace_id = request_span.trace_id
+          ngx.var.datadog_parent_id = request_span.parent_id
+        end
+
         -- Set datadog tags
         if conf then
             if conf.environment then
