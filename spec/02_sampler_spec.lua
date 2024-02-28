@@ -9,6 +9,19 @@ _G.kong = {
 }
 
 describe("trace sampler", function()
+    it("default rate #tags", function()
+        local start_time = 1700000000000000000LL
+        local duration = 100000000LL
+        local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
+        local sampler = new_sampler(10, nil)
+        local sampled = sampler:sample(span)
+        assert.is_true(sampled)
+        assert.equal("-0", span.meta["_dd.p.dm"])
+        assert.is_nil(span.metrics["_dd.rule_psr"])
+        assert.is_nil(span.metrics["_dd.limit_psr"])
+        assert.equal(span.metrics["_sampling_priority_v1"], 1)
+        span:finish(start_time + duration)
+    end)
     it("is created with initial limits", function()
         local start_time = 1700000000000000000LL
         local duration = 100000000LL
@@ -32,13 +45,13 @@ describe("trace sampler", function()
                 assert.is_true(sampled)
                 assert.equal(span.metrics["_dd.rule_psr"], 1.0)
                 assert.equal(span.metrics["_dd.limit_psr"], 1.0)
-                assert.equal(span.metrics["_dd.p.dm"], 3)
+                assert.equal(span.meta["_dd.p.dm"], "-3")
                 assert.equal(span.sampling_priority, 2)
             else
                 assert.is_false(sampled)
                 assert.equal(span.metrics["_dd.rule_psr"], 1.0)
                 assert.equal(span.metrics["_dd.limit_psr"], 1.0)
-                assert.equal(span.metrics["_dd.p.dm"], 3)
+                assert.equal(span.meta["_dd.p.dm"], "-3")
                 assert.equal(span.sampling_priority, -1)
             end
             span:finish(start_time + duration)
@@ -55,7 +68,7 @@ describe("trace sampler", function()
          for i = 1, 100 do
              local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
              local sampled = sampler:sample(span)
-             assert.equal(span.metrics["_dd.p.dm"], 3)
+             assert.equal(span.meta["_dd.p.dm"], "-3")
              if sampled then
                  assert.equal(span.sampling_priority, 2)
                  limit_rule_and_sampled = limit_rule_and_sampled + 1
@@ -77,7 +90,7 @@ describe("trace sampler", function()
         local increment = 250000000LL -- 0.25s
         local sampler = new_sampler(3, 1.0)
         local span
-        -- first two will be sampled, next two not sampled, and fifth one in new time interval, 
+        -- first two will be sampled, next two not sampled, and fifth one in new time interval,
         -- so effective rate should be 0.5
         for i = 1, 5 do
             span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
@@ -94,7 +107,7 @@ describe("trace sampler", function()
         local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
         sampler:sample(span)
         span:finish(start_time + duration)
-        assert.equal(span.metrics["_dd.p.dm"], 3)
+        assert.equal(span.meta["_dd.p.dm"], "-3")
     end)
     it("applies rate supplied by the agent", function()
         local start_time = 1700000000000000000LL
@@ -105,7 +118,7 @@ describe("trace sampler", function()
         local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
         sampler:sample(span)
         span:finish(start_time + duration)
-        assert.equal(span.metrics["_dd.p.dm"], 1)
+        assert.equal(span.meta["_dd.p.dm"], "-1")
         assert.equal(span.metrics["_dd.agent_psr"], 0.1)
     end)
     it("reports errors when parsing fails", function()
