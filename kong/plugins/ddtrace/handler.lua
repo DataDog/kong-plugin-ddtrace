@@ -1,11 +1,11 @@
-local ddtrace = require("ddtrace")
+local ddtrace = require("kong.plugins.ddtrace.ddtrace")
 local utils = require("kong.plugins.ddtrace.utils")
 
 local pcall = pcall
 local subsystem = ngx.config.subsystem
 local fmt = string.format
--- local strsub = string.sub
--- local regex = ngx.re
+local strsub = string.sub
+local regex = ngx.re
 
 local DatadogTraceHandler = {
     VERSION = "0.1.2",
@@ -28,7 +28,7 @@ local initialize_request
 local function get_or_add_proxy_span(datadog)
     if not datadog.proxy_span then
         local request_span = datadog.request_span
-        datadog.proxy_span = request_span:new_child("proxy")
+        datadog.proxy_span = request_span:create_child("proxy")
     end
     return datadog.proxy_span
 end
@@ -80,65 +80,83 @@ end
 
 -- apply resource_name_rules to the provided URI
 -- and return a replacement value.
--- local function apply_resource_name_rules(uri, rules)
---     if rules then
---         for _, rule in ipairs(rules) do
---             -- try to match URI to rule's expression
---             local from, to, _ = regex.find(uri, rule.match, "ajo")
---             if from then
---                 local matched_uri = strsub(uri, from, to)
---                 -- if we have a match but no replacement, return the matched value
---                 if not rule.replacement then
---                     return matched_uri
---                 end
---                 local replaced_uri, _, _ = regex.sub(matched_uri, rule.match, rule.replacement, "ajo")
---                 if replaced_uri then
---                     return replaced_uri
---                 end
---             end
---         end
---     end
---
---     -- no rules matched or errors occured, apply a default rule
---     -- decompose path into fragments, and replace parts with excessive digits with ?,
---     -- except if it looks like a version identifier (v1, v2 etc) or if it is
---     -- a status / health check
---     local fragments = {}
---     local it, _ = regex.gmatch(uri, "(/[^/]*)", "jo")
---     if not it then
---         return uri
---     end
---     while true do
---         local fragment_table = it()
---         if not fragment_table then
---             break
---         end
---         -- the iterator returns a table, but it should only have one item in it
---         local fragment = fragment_table[1]
---         table.insert(fragments, fragment)
---     end
---     for i, fragment in ipairs(fragments) do
---         local token = strsub(fragment, 2)
---         local version_match = regex.match(token, "v\\d+", "ajo")
---         if version_match then
---             -- no ? substitution for versions
---             goto continue
---         end
---
---         local token_len = #token
---         local _, digits, _ = regex.gsub(token, "\\d", "", "jo")
---         if token_len <= 5 and digits > 2 or token_len > 5 and digits > 3 then
---             -- apply the substitution
---             fragments[i] = "/?"
---         end
---         ::continue::
---     end
---
---     return table.concat(fragments)
--- end
+local function apply_resource_name_rules(uri, rules)
+    if rules then
+        for _, rule in ipairs(rules) do
+            -- try to match URI to rule's expression
+            local from, to, _ = regex.find(uri, rule.match, "ajo")
+            if from then
+                local matched_uri = strsub(uri, from, to)
+                -- if we have a match but no replacement, return the matched value
+                if not rule.replacement then
+                    return matched_uri
+                end
+                local replaced_uri, _, _ = regex.sub(matched_uri, rule.match, rule.replacement, "ajo")
+                if replaced_uri then
+                    return replaced_uri
+                end
+            end
+        end
+    end
+
+    -- no rules matched or errors occured, apply a default rule
+    -- decompose path into fragments, and replace parts with excessive digits with ?,
+    -- except if it looks like a version identifier (v1, v2 etc) or if it is
+    -- a status / health check
+    local fragments = {}
+    local it, _ = regex.gmatch(uri, "(/[^/]*)", "jo")
+    if not it then
+        return uri
+    end
+    while true do
+        local fragment_table = it()
+        if not fragment_table then
+            break
+        end
+        -- the iterator returns a table, but it should only have one item in it
+        local fragment = fragment_table[1]
+        table.insert(fragments, fragment)
+    end
+    for i, fragment in ipairs(fragments) do
+        local token = strsub(fragment, 2)
+        local version_match = regex.match(token, "v\\d+", "ajo")
+        if version_match then
+            -- no ? substitution for versions
+            goto continue
+        end
+
+        local token_len = #token
+        local _, digits, _ = regex.gsub(token, "\\d", "", "jo")
+        if token_len <= 5 and digits > 2 or token_len > 5 and digits > 3 then
+            -- apply the substitution
+            fragments[i] = "/?"
+        end
+        ::continue::
+    end
+
+    return table.concat(fragments)
+end
 
 local header_tags
 local tracer
+
+local function build_agent_url(conf)
+    -- traces_endpoint is determined by the configuration with this
+    -- order of precedence:
+    -- - use trace_agent_url if set
+    -- - use agent_host:agent_port if agent_host is set
+    -- - use agent_endpoint if set but warn that it is deprecated
+    -- - if nothing is set, default to http://localhost:8126/v0.4/traces
+    if conf.trace_agent_url then
+      return conf.trace_agent_url
+    end
+
+    local host = conf.agent_host or "localhost"
+    local port = conf.trace_agent_port or "8126"
+    local agent_url = string.format("http://%s:%s", host, port)
+    kong.log.notice("traces will be sent to the agent at " .. agent_url)
+    return agent_url
+end
 
 if subsystem == "http" then
     initialize_request = function(conf, ctx)
@@ -148,10 +166,13 @@ if subsystem == "http" then
             ["service"] = conf and conf.service_name or "kong"
           }
           if conf.environment then
-              config.environment = conf.environment
+              config.env = conf.environment
           end
           if conf.version then
               config.version = conf.version
+          end
+          if conf.trace_agent_url or conf.agent_host or conf.agent_endpoint then
+              config.agent_url = build_agent_url(conf)
           end
 
           tracer = ddtrace.make_tracer(config)
@@ -170,8 +191,13 @@ if subsystem == "http" then
           return req.get_header(key)
         end
 
-        local request_span = tracer:extract_or_create_span(header_extractor, "kong.plugin.ddtrace")
-        -- method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule), -- TODO: decrease cardinality of path value
+        local span_options = {
+            name = "kong.plugin.ddtrace",
+            -- TODO: decrease cardinality of path value
+            resource = method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule)
+        }
+
+        local request_span = tracer:extract_or_create_span(header_extractor, span_options)
 
         -- Set nginx informational tags
         request_span:set_tag("nginx.version", ngx.config.nginx_version)
@@ -283,7 +309,6 @@ if subsystem == "http" then
     -- TODO: consider handling stream subsystem
 end
 
-
 function DatadogTraceHandler:log(conf) -- luacheck: ignore 212
     local ok, message = pcall(function() self:log_p(conf) end)
     if not ok then
@@ -332,7 +357,6 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
         -- TODO: allow user to define additional status codes that are treated as errors.
         if status_code >= 500 then
             request_span:set_error(true)
-            -- request_span.set_error(status_code)
         end
 
         if header_tags then
