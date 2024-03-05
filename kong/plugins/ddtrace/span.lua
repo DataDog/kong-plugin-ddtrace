@@ -28,7 +28,7 @@ end
 
 local function new(service, name, resource,
     trace_id, span_id, parent_id,
-    start, sampling_priority, origin)
+    start, sampling_priority, origin, root)
     assert(type(name) == "string" and name ~= "", "invalid span name")
     assert(type(resource) == "string" and resource ~= "", "invalid span resource")
     assert(trace_id == nil or ffi.istype(uint64_t, trace_id), "invalid trace id")
@@ -36,6 +36,7 @@ local function new(service, name, resource,
     assert(parent_id == nil or ffi.istype(uint64_t, parent_id), "invalid parent id")
     assert(ffi.istype(int64_t, start) and start >= 0, "invalid span start timestamp")
     assert(sampling_priority == nil or type(sampling_priority) == "number", "invalid sampling priority")
+    assert(root == nil or type(root) == "table", "invalid root span")
 
     if trace_id == nil then
         -- a new trace
@@ -59,12 +60,13 @@ local function new(service, name, resource,
         sampling_priority = sampling_priority,
         origin = origin,
         meta = {
-            ["language"] = "lua",
+            ["language"] = "lua"
         },
         metrics = {
             ["_sampling_priority_v1"] = sampling_priority,
         },
         error = 0,
+        root = root,
     }, span_mt)
 end
 
@@ -74,18 +76,25 @@ function span_methods:set_sampling_priority(sampling_priority)
     self.metrics["_sampling_priority_v1"] = sampling_priority
 end
 
+function span_methods:set_tags(tags)
+    assert(type(tags) == "table")
+    for k,v in pairs(tags) do
+        self:set_tag(k, v)
+    end
+end
 
 function span_methods:new_child(name, resource, start)
     return new(
-    self.service,
-    name,
-    resource,
-    self.trace_id,
-    generate_span_id(),
-    self.span_id,
-    start,
-    self.sampling_priority,
-    self.origin
+        self.service,
+        name,
+        resource,
+        self.trace_id,
+        generate_span_id(),
+        self.span_id,
+        start,
+        self.sampling_priority,
+        self.origin,
+        self.root or self
     )
 end
 

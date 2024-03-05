@@ -9,7 +9,7 @@ _G.kong = {
 }
 
 describe("trace sampler", function()
-    it("default rate #tags", function()
+    it("default rate", function()
         local start_time = 1700000000000000000LL
         local duration = 100000000LL
         local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
@@ -33,7 +33,7 @@ describe("trace sampler", function()
         assert.equal(span.metrics["_dd.limit_psr"], 1.0)
         span:finish(start_time + duration)
     end)
-    it("applies the limits  ", function()
+    it("applies the limits", function()
         local start_time = 1700000000000000000LL
         local duration = 100000000LL
         local increment = 100000000LL -- 0.1s
