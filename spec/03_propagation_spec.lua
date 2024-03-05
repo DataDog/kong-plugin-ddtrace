@@ -10,7 +10,8 @@ local default_span_opts = {
     service = "kong",
     name = "kong.handle",
     start_us = 1708943277 * 1000000LL,
-    resource = "default_resource"
+    resource = "default_resource",
+    generate_128bit_trace_ids = true
 }
 
 local default_max_header_size = 512

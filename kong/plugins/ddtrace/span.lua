@@ -18,34 +18,59 @@ local span_mt = {
 local uint64_t = ffi.typeof("uint64_t")
 local int64_t = ffi.typeof("int64_t")
 
-local function generate_span_id()
+local function random_64bit()
     local x = rand_bytes(8)
     local b = {1ULL * byte(x,1), 1ULL * byte(x,2), 1ULL * byte(x,3), 1ULL * byte(x,4), 1ULL * byte(x,5), 1ULL * byte(x,6), 1ULL * byte(x,7), 1ULL * byte(x,8)}
     local id = bit.bor(bit.lshift(b[1], 56), bit.lshift(b[2], 48), bit.lshift(b[3], 40), bit.lshift(b[4], 32), bit.lshift(b[5], 24), bit.lshift(b[6], 16), bit.lshift(b[7], 8), b[8])
-    -- truncate to 63-bit value
-    return bit.band(id, 0x7FFFFFFFFFFFFFFFULL)
+    return id
+end
+
+local function legacy_63bit_ids_generator()
+    -- NOTE(@dmehala): truncate to 63-bit value for legacy reasons
+    return bit.band(random_64bit(), 0x7FFFFFFFFFFFFFFFULL)
+end
+
+local function trace_64bit_ids_generator(_)
+    return {high=nil, low=legacy_63bit_ids_generator()}
+end
+
+local function trace_128bit_ids_generator(now_us)
+    local now_s = uint64_t(now_us / 1000000)
+    local msb = bit.lshift(now_s, 32)
+    return {high=msb, low=random_64bit()}
 end
 
 local function new(service, name, resource,
     trace_id, span_id, parent_id,
-    start, sampling_priority, origin, root)
+    start_us, sampling_priority, origin, generate_128bit_trace_ids, root)
     assert(type(name) == "string" and name ~= "", "invalid span name")
     assert(type(resource) == "string" and resource ~= "", "invalid span resource")
-    assert(trace_id == nil or ffi.istype(uint64_t, trace_id), "invalid trace id")
+    assert(trace_id == nil or type(trace_id) == "table", "invalid trace id")
     assert(span_id == nil or ffi.istype(uint64_t, span_id), "invalid span id")
     assert(parent_id == nil or ffi.istype(uint64_t, parent_id), "invalid parent id")
-    assert(ffi.istype(int64_t, start) and start >= 0, "invalid span start timestamp")
+    assert(ffi.istype(int64_t, start_us) and start_us >= 0, "invalid span start timestamp")
     assert(sampling_priority == nil or type(sampling_priority) == "number", "invalid sampling priority")
     assert(root == nil or type(root) == "table", "invalid root span")
+    assert(type(generate_128bit_trace_ids) == "boolean")
+
+    local trace_id_generator = (generate_128bit_trace_ids and trace_128bit_ids_generator) or trace_64bit_ids_generator
 
     if trace_id == nil then
         -- a new trace
-        trace_id = generate_span_id()
-        span_id = trace_id
+        trace_id = trace_id_generator(start_us)
+        span_id = trace_id.low
         parent_id = uint64_t(0)
     elseif span_id == nil then
         -- a new span for an existing trace
-        span_id = generate_span_id()
+        span_id = legacy_63bit_ids_generator()
+    end
+
+    local meta = {
+      language = "lua"
+    }
+
+    if root == nil and trace_id.high ~= nil then
+        meta["_dd.p.tid"] = bit.tohex(trace_id.high)
     end
 
     return setmetatable({
@@ -56,17 +81,16 @@ local function new(service, name, resource,
         trace_id = trace_id,
         span_id = span_id,
         parent_id = parent_id,
-        start = start,
+        start = start_us,
         sampling_priority = sampling_priority,
         origin = origin,
-        meta = {
-            ["language"] = "lua"
-        },
+        meta = meta,
         metrics = {
             ["_sampling_priority_v1"] = sampling_priority,
         },
         error = 0,
         root = root,
+        generate_128bit_trace_ids = generate_128bit_trace_ids,
     }, span_mt)
 end
 
@@ -89,11 +113,12 @@ function span_methods:new_child(name, resource, start)
         name,
         resource,
         self.trace_id,
-        generate_span_id(),
+        legacy_63bit_ids_generator(),
         self.span_id,
         start,
         self.sampling_priority,
         self.origin,
+        self.generate_128bit_trace_ids,
         self.root or self
     )
 end
@@ -110,15 +135,11 @@ end
 
 
 function span_methods:set_tag(key, value)
-    -- kong.log.err(fmt("set_tag: '%s': '%s' (%s)", key, value, type(value)))
     assert(type(key) == "string", "invalid tag key")
     if value ~= nil then -- Validate value
         local vt = type(value)
         assert(vt == "string" or vt == "number" or vt == "boolean",
         "invalid tag value (expected string, number, boolean or nil)")
-    end
-    if not self.meta then
-        self.meta = {}
     end
     if value then
         self.meta[key] = tostring(value)
@@ -127,14 +148,6 @@ function span_methods:set_tag(key, value)
     end
     return true
 end
-
-
-function span_methods:each_tag()
-    local tags = self.tags
-    if tags == nil then return function() end end
-    return next, tags
-end
-
 
 function span_methods:set_http_header_tags(header_tags, get_request_header, get_response_header)
     for header_name, tag_entry in pairs(header_tags) do

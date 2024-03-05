@@ -35,7 +35,9 @@ describe("trace propagation", function()
 
             local trace_id, parent_id, sampling_priority, origin, tags, err = extract_datadog(get_header, 512)
             assert.is_nil(err)
-            assert.equal(trace_id, 12345678901234567890ULL)
+
+            local expected_trace_id = {high=nil, low=12345678901234567890ULL}
+            assert.same(expected_trace_id, trace_id)
             assert.equal(parent_id, 9876543210987654321ULL)
             assert.equal(sampling_priority, 1)
             assert.same(origin, "test-origin")
@@ -45,6 +47,27 @@ describe("trace propagation", function()
             }
 
             assert.same(expected_tags, tags)
+        end)
+        it("extracts 128bit trace", function()
+            local headers = {
+                ["x-datadog-trace-id"] = "12345678901234567890",
+                ["x-datadog-parent-id"] = "9876543210987654321",
+                ["x-datadog-sampling-priority"] = "1",
+                ["x-datadog-origin"] = "test-origin",
+                ["x-datadog-tags"] = "_dd.p.tid=cbae7cb600000000,_dd.p.dm=-0"
+            }
+            local get_header = make_getter(headers)
+
+            local trace_id, parent_id, sampling_priority, origin, tags, err = extract_datadog(get_header, 512)
+            assert.is_nil(err)
+
+            local expected_trace_id = {high=14676805356772917248ULL, low=12345678901234567890ULL}
+            assert.same(trace_id, expected_trace_id)
+            assert.equal(parent_id, 9876543210987654321ULL)
+            assert.equal(sampling_priority, 1)
+            assert.same(origin, "test-origin")
+            assert.equal("cbae7cb600000000", tags["_dd.p.tid"])
+            assert.equal("-0", tags["_dd.p.dm"])
         end)
 
         describe("datadog tags extraction", function()
@@ -125,12 +148,38 @@ describe("trace propagation", function()
 
             local start_time = 1700000000000000000LL
             local duration = 100000000LL
-            local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
+            local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, false, nil)
             inject_datadog(span, set_header, 512)
             span:finish(start_time + duration)
             assert.equal(2, headers_set)
             assert.is_string(headers["x-datadog-trace-id"])
             assert.is_string(headers["x-datadog-parent-id"])
+        end)
+        it("injects 128 bit trace id", function()
+            -- add kong.service.request.set_header method
+            local headers = {}
+            local headers_set = 0
+            local set_header = function(key, value)
+                headers[key] = value
+                headers_set = headers_set + 1
+            end
+            _G.kong = {
+                service = {
+                    request = {
+                        set_header = set_header,
+                    },
+                },
+            }
+            local start_time = 1700000000000000000LL
+            local duration = 100000000LL
+            local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, true, nil)
+            inject_datadog(span, set_header, 512)
+            span:finish(start_time + duration)
+            assert.equal(headers_set, 3)
+            assert.is_string(headers["x-datadog-trace-id"])
+            assert.is_string(headers["x-datadog-parent-id"])
+            assert.is_string(headers["x-datadog-tags"])
+            assert.equal(headers["x-datadog-tags"], "_dd.p.tid=" .. bit.tohex(span.trace_id.high))
         end)
 
         describe("datadog tags injection", function()
@@ -150,7 +199,7 @@ describe("trace propagation", function()
                       }
 
                       local max_header_size = 0
-                      local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, nil)
+                      local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, false, nil)
                       span:set_tags(propagation_tags)
                       inject_datadog(span, set_header, max_header_size)
 
@@ -164,7 +213,7 @@ describe("trace propagation", function()
                       }
 
                       local max_header_size = 1
-                      local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, nil)
+                      local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, false, nil)
                       span:set_tags(propagation_tags)
                       inject_datadog(span, set_header, max_header_size)
 
@@ -175,7 +224,7 @@ describe("trace propagation", function()
             end)
 
             it("empty propagation tags", function()
-                  local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, nil)
+                  local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, false, nil)
                   inject_datadog(span, set_header, 512)
 
                   assert.is_nil(headers["x-datadog-tags"])
@@ -187,7 +236,7 @@ describe("trace propagation", function()
                     ["_dd.p.hello"] = "world",
                 }
 
-                local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, nil)
+                local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, false, nil)
                 span:set_tags(propagation_tags)
                 inject_datadog(span, set_header, 512)
 
@@ -204,7 +253,7 @@ describe("trace propagation", function()
                     ["_dd.p.hello"] = "mars",
                 }
 
-                local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, nil)
+                local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, false, nil)
                 span:set_tags(propagation_tags)
 
                 local child_start = start_time + 10
@@ -221,7 +270,7 @@ describe("trace propagation", function()
             it("sampling decision is propagated", function()
                 local new_sampler = require "kong.plugins.ddtrace.sampler".new
                 local sampler = new_sampler(10, nil)
-                local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, nil)
+                local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, false, nil)
 
                 local ok = sampler:sample(span)
                 assert.is_true(ok)
