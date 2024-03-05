@@ -28,5 +28,6 @@ build = {
     ["kong.plugins.ddtrace.agent_writer"] = "kong/plugins/ddtrace/agent_writer.lua",
     ["kong.plugins.ddtrace.msgpack_encode"] = "kong/plugins/ddtrace/msgpack_encode.lua",
     ["kong.plugins.ddtrace.utils"] = "kong/plugins/ddtrace/utils.lua",
+    ["kong.plugins.ddtrace.datadog_propagation"] = "kong/plugins/ddtrace/datadog_propagation.lua",
   },
 }
