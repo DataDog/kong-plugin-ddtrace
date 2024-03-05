@@ -47,7 +47,7 @@ local function encode_propagation_tags(tags)
   local first = true
 
   for k,v in pairs(tags) do
-    if startswith(k, "_dd.p") then
+    if startswith(k, "_dd.p.") then
       local tag = k .. "=" .. v
       if first then
         result = tag
@@ -86,11 +86,7 @@ local function extract_datadog(get_header, max_header_size)
               dd_tags["_dd.propagation_error"] = "extract_max_size"
               kong.log.warn("`x-datadog-tags` exceed the limit of " .. max_header_size .. " characters")
             else
-              dd_tags, err = parse_dd_tags(dd_tags_value)
-              if err then
-                  dd_tags["_dd.propagation_error"] = "decoding_error"
-                  kong.log.warn("could not parse `x-datadog-tags`. Reason: " .. err)
-              end
+              dd_tags = parse_dd_tags(dd_tags_value)
             end
         end
     end

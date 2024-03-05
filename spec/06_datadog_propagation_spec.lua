@@ -2,7 +2,7 @@ local extract_datadog = require "kong.plugins.ddtrace.datadog_propagation".extra
 local inject_datadog = require "kong.plugins.ddtrace.datadog_propagation".inject
 local new_span = require "kong.plugins.ddtrace.span".new
 
-local function get_header_builder(headers)
+local function make_getter(headers)
     local function getter(header)
         return headers[header]
     end
@@ -31,7 +31,7 @@ describe("trace propagation", function()
                 ["x-datadog-tags"] = "_dd.p.dm=-4",
             }
 
-            local get_header = get_header_builder(headers)
+            local get_header = make_getter(headers)
 
             local trace_id, parent_id, sampling_priority, origin, tags, err = extract_datadog(get_header, 512)
             assert.is_nil(err)
@@ -65,7 +65,7 @@ describe("trace propagation", function()
                     ["_dd.propagation_error"] = "decoding_error"
                 }
 
-                local get_header = get_header_builder(headers)
+                local get_header = make_getter(headers)
 
                 local _, _, _, _, tags , err = extract_datadog(get_header, 512)
                 assert.is_nil(err)
@@ -81,7 +81,7 @@ describe("trace propagation", function()
                     ["_dd.p.team"] = "apm-proxy"
                 }
 
-                local get_header = get_header_builder(headers)
+                local get_header = make_getter(headers)
                 local _, _, _, _, tags , err = extract_datadog(get_header, 512)
                 assert.is_nil(err)
                 assert.same(expected_tags, tags)
@@ -91,7 +91,7 @@ describe("trace propagation", function()
                 local headers = base_headers
                 headers["x-datadog-tags"] = "_dd.p.dm=-2"
 
-                local get_header = get_header_builder(headers)
+                local get_header = make_getter(headers)
                 it("is zero", function()
                     local max_header_size = 0
                     local _, _, _, _, tags , err = extract_datadog(get_header, max_header_size)

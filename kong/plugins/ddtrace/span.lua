@@ -77,10 +77,9 @@ function span_methods:set_sampling_priority(sampling_priority)
 end
 
 function span_methods:set_tags(tags)
-    if type(tags) == "table" then
-        for k,v in pairs(tags) do
-            self:set_tag(k, v)
-        end
+    assert(type(tags) == "table")
+    for k,v in pairs(tags) do
+        self:set_tag(k, v)
     end
 end
 
@@ -95,7 +94,7 @@ function span_methods:new_child(name, resource, start)
         start,
         self.sampling_priority,
         self.origin,
-        self
+        self.root or self
     )
 end
 

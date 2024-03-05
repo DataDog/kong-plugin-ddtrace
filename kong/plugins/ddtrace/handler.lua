@@ -209,7 +209,7 @@ if subsystem == "http" then
             name = "kong.plugin.ddtrace",
             start_us = ngx.ctx.KONG_PROCESSING_START * 1000000LL,
             -- TODO: decrease cardinality of path value
-            ressource = method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule)
+            resource = method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule)
         }
 
         local request_span = propagator.extract_or_create_span(req, span_options, conf.max_header_size)
