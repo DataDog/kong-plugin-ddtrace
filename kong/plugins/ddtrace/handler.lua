@@ -34,6 +34,8 @@ end
 -- active request. This gets initialized on the first request this plugin handles.
 local agent_writer_timer
 local sampler
+local header_tags
+local ddtrace_conf
 
 local ngx_now            = ngx.now
 
@@ -51,9 +53,9 @@ local function ngx_now_mu()
 end
 
 
-local function get_agent_writer(conf)
+local function get_agent_writer(conf, agent_url)
     if agent_writer_cache[conf] == nil then
-        agent_writer_cache[conf] = new_trace_agent_writer(conf, sampler, DatadogTraceHandler.VERSION)
+        agent_writer_cache[conf] = new_trace_agent_writer(agent_url, sampler, DatadogTraceHandler.VERSION)
     end
     return agent_writer_cache[conf]
 end
@@ -182,22 +184,42 @@ local function apply_resource_name_rules(uri, rules)
     return table.concat(fragments)
 end
 
-local header_tags
+local function configure(conf)
+    local get_from_vault = kong.vault.get
+    local get_env = function(env_name)
+      local env_value, _ = get_from_vault(string.format("{vault://env/%s}", env_name))
+      return env_value
+    end
+
+    -- Build agent url
+    local agent_host = get_env("DD_AGENT_HOST") or conf.agent_host or "localhost"
+    local agent_port = get_env("DD_TRACE_AGENT_PORT") or conf.trace_agent_port or "8126"
+    if type(agent_port) ~= "string" then
+        agent_port = tostring(agent_port)
+    end
+    local agent_url = string.format("http://%s:%s", agent_host, agent_port)
+
+    ddtrace_conf = {
+      service = get_env("DD_SERVICE") or conf.service_name or "kong",
+      environment = get_env("DD_ENV") or conf.environment,
+      version = get_env("DD_VERSION") or conf.version,
+      agent_url = get_env("DD_TRACE_AGENT_URL") or conf.trace_agent_url or agent_url,
+    }
+
+    agent_writer_timer = ngx.timer.every(2.0, flush_agent_writers)
+    sampler = new_sampler(math.ceil(conf.initial_samples_per_second / ngx_worker_count), conf.initial_sample_rate)
+
+    if conf and conf.header_tags then
+        header_tags = utils.normalize_header_tags(conf.header_tags)
+    end
+end
 
 if subsystem == "http" then
     initialize_request = function(conf, ctx)
-        -- TODO: Support Kong 3.5.x `plugin:configure`
-        -- one-time setup of the timer and sampler, only on the first request
-        if not agent_writer_timer then
-            agent_writer_timer = ngx.timer.every(2.0, flush_agent_writers)
-        end
-        if not sampler then
-            -- each worker gets a chunk of the overall samples_per_second value as their per-second limit
-            -- though it is rounded up. This can be more-precisely allocated if necessary
-            sampler = new_sampler(math.ceil(conf.initial_samples_per_second / ngx_worker_count), conf.initial_sample_rate)
-        end
-        if not header_tags and (conf and conf.header_tags) then
-            header_tags = utils.normalize_header_tags(conf.header_tags)
+        if not ddtrace_conf then
+            -- NOTE(@dmehala): Kong versions older than 3.5 do not call `plugin:configure` method.
+            -- `configure` will be called only on the first request
+            configure(conf)
         end
 
         local req = kong.request
@@ -205,7 +227,7 @@ if subsystem == "http" then
         local path = req.get_path()
 
         local span_options = {
-            service = conf and conf.service_name or "kong",
+            service = ddtrace_conf.service,
             name = "kong.plugin.ddtrace",
             start_us = ngx.ctx.KONG_PROCESSING_START * 1000000LL,
             -- TODO: decrease cardinality of path value
@@ -216,13 +238,11 @@ if subsystem == "http" then
         local request_span = propagator.extract_or_create_span(req, span_options, conf.max_header_size)
 
         -- Set datadog tags
-        if conf then
-            if conf.environment then
-                request_span:set_tag("env", conf.environment)
-            end
-            if conf.version then
-                request_span:set_tag("version", conf.version)
-            end
+        if ddtrace_conf.environment then
+            request_span:set_tag("env", ddtrace_conf.environment)
+        end
+        if ddtrace_conf.version then
+            request_span:set_tag("version", ddtrace_conf.version)
         end
 
         -- TODO: decide about deferring sampling decision until injection or not
@@ -278,6 +298,16 @@ if subsystem == "http" then
             proxy_span = nil,
             header_filter_finished = false,
         }
+    end
+
+    function DatadogTraceHandler:configure(configs)
+        local conf = configs and configs[1] or nil
+        if conf then
+            local ok, message = pcall(function() configure(conf) end)
+            if not ok then
+                kong.log.err("failed to configure ddtrace:" .. message)
+            end
+        end
     end
 
     function DatadogTraceHandler:rewrite(conf)
@@ -369,7 +399,7 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
     local ngx_ctx = ngx.ctx
     local request_span = datadog.request_span
     local proxy_span = get_or_add_proxy_span(datadog, now_mu * 1000LL)
-    local agent_writer = get_agent_writer(conf)
+    local agent_writer = get_agent_writer(conf, ddtrace_conf.agent_url)
 
     local proxy_finish_mu =
     ngx_ctx.KONG_BODY_FILTER_ENDED_AT and ngx_ctx.KONG_BODY_FILTER_ENDED_AT * 1000
