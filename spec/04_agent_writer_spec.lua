@@ -57,7 +57,7 @@ describe("agent_writer", function()
         local agent_writer = new_agent_writer({ agent_host = "datadog-agent", trace_agent_port = 8126 }, sampler, "test-version")
         local start_time = 1700000000000000000LL
         local duration = 100000000LL
-        local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil)
+        local span = new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, false, nil)
         span:finish(start_time + duration)
         agent_writer:add({span})
         local ok = agent_writer:flush()

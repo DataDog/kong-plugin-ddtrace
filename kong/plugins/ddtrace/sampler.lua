@@ -79,7 +79,7 @@ end
 -- returns whether the span is sampled based on the max_id
 local function sampling_decision(span, max_id)
     -- not-ideal knuth hashing of trace ids
-    local hashed_trace_id = span.trace_id * 1111111111111111111ULL
+    local hashed_trace_id = span.trace_id.low * 1111111111111111111ULL
     if hashed_trace_id > max_id then
         return false
     end

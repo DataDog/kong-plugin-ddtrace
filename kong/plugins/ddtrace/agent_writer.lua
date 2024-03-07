@@ -33,10 +33,34 @@ local function new(conf, sampler, tracer_version)
     }, agent_writer_mt)
 end
 
+local function encode_span(span)
+    return encoder.pack({
+        type = span.type,
+        service = span.service,
+        name = span.name,
+        resource = span.resource,
+        trace_id = span.trace_id.low,
+        span_id = span.span_id,
+        parent_id = span.parent_id,
+        start = span.start,
+        sampling_priority = span.sampling_priority,
+        origin = span.origin,
+        meta = span.meta,
+        metrics = span.metrics,
+        error = span.error,
+    })
+end
+
 
 function agent_writer_methods:add(spans)
     local i = self.trace_segments_n + 1
-    self.trace_segments[i] = encoder.pack(spans)
+
+    local buffer = encoder.arrayheader(#spans)
+    for _, span in ipairs(spans) do
+        buffer = buffer .. encode_span(span)
+    end
+
+    self.trace_segments[i] = buffer
     self.trace_segments_n = i
 end
 

@@ -12,15 +12,15 @@ local function id_to_string(id)
   return string.sub(str_id, 1, #str_id - 3)
 end
 
-local function parse_uint64(str)
+local function parse_uint64(str, base)
     if not str then
         return nil, "unable to parse, value is nil"
     end
     ffi.errno(0)
-    local parsed_str = ffi.C.strtoull(str, nil, 10)
+    local parsed_str = ffi.C.strtoull(str, nil, base)
     local err = ffi.errno()
     if err ~= 0 then
-        return nil, "unable to parse '" .. str .. "' as 64-bit number, errno=" .. err
+        return nil, "unable to parse '" .. str .. "' (base " .. base .. ") as 64-bit number, errno=" .. err
     end
     -- TODO: check the entire string was consumed, instead of partially decoded
     return parsed_str, nil
@@ -67,14 +67,15 @@ local function extract_datadog(get_header, max_header_size)
         -- no trace ID found, therefore create a new span
         return nil, nil, nil, nil, nil, nil, nil
     end
-    local trace_id, err = parse_uint64(trace_id_value)
+    local trace_id_low, err = parse_uint64(trace_id_value, 10)
     if err then
         -- tracing was desired but the value wasn't understood
         return nil, nil, nil, nil, nil, nil, err
     end
 
     -- other headers are expected but aren't provided in all cases
-    local parent_id = parse_uint64(get_header("x-datadog-parent-id"))
+    local trace_id = {high=nil, low=trace_id_low}
+    local parent_id = parse_uint64(get_header("x-datadog-parent-id"), 10)
     local sampling_priority = tonumber(get_header("x-datadog-sampling-priority"))
     local origin = get_header("x-datadog-origin")
     local dd_tags = {}
@@ -87,6 +88,22 @@ local function extract_datadog(get_header, max_header_size)
               kong.log.warn("`x-datadog-tags` exceed the limit of " .. max_header_size .. " characters")
             else
               dd_tags = parse_dd_tags(dd_tags_value)
+            end
+        end
+    end
+
+    local tid = dd_tags["_dd.p.tid"]
+    if tid then
+        if #tid ~= 16 then
+            dd_tags["_dd.propagation_error"] = "malformed_tid " .. tid
+            dd_tags["_dd.p.tid"] = nil
+        else
+            local trace_id_high, err = parse_uint64(tid, 16)
+            if err then
+                dd_tags["_dd.propagation_error"] = "malformed_tid " .. tid
+                dd_tags["_dd.p.tid"] = nil
+            else
+                trace_id.high = trace_id_high
             end
         end
     end
