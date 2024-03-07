@@ -200,6 +200,7 @@ local function configure(conf)
     local agent_url = string.format("http://%s:%s", agent_host, agent_port)
 
     ddtrace_conf = {
+      __id__ = conf["__seq__"],
       service = get_env("DD_SERVICE") or conf.service_name or "kong",
       environment = get_env("DD_ENV") or conf.environment,
       version = get_env("DD_VERSION") or conf.version,
@@ -216,9 +217,10 @@ end
 
 if subsystem == "http" then
     initialize_request = function(conf, ctx)
-        if not ddtrace_conf then
+        if not ddtrace_conf or conf["__seq__"] ~= ddtrace_conf["__id__"] then
             -- NOTE(@dmehala): Kong versions older than 3.5 do not call `plugin:configure` method.
-            -- `configure` will be called only on the first request
+            -- `configure` will be called only on the first request or when the configuration has
+            -- been updated.
             configure(conf)
         end
 
