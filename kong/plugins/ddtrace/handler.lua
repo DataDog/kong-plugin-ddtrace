@@ -32,7 +32,7 @@ end
 -- This timer runs in the background to flush traces for all instances of the plugin.
 -- Because of the way timers work in lua, this can only be initialized when there's an
 -- active request. This gets initialized on the first request this plugin handles.
-local agent_writer_timer
+local agent_writer_timer -- luacheck: ignore 231
 local sampler
 local header_tags
 local ddtrace_conf
