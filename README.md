@@ -5,8 +5,8 @@ It was originally based on the [zipkin plugin](https://github.com/Kong/kong-plug
 
 ## Compatibility
 
-This plugin is compatible with Kong Gateway v2.x and v3.x.
-The oldest version tested is v2.0.5 and the newest is v3.2.2
+This plugin is compatible with Kong Gateway `v2.x` and `v3.x`.
+The oldest version tested is `v2.0.5` and the newest is `v3.6.1`
 
 ## Installation
 
@@ -39,30 +39,9 @@ The hostname or IP that will be used to connect to the agent.
 
 `--data 'config.agent_host=your-agent-address'`
 
-This value can use vault references. By default, the value of the environment variable `DD_AGENT_HOST` is used by resolving `vault://env/dd-agent-host`.
-When this variable is not set, the default is `localhost`.
+The default value is `localhost`.
 
-In Kubernetes helm chart deployments of Kong, the value can be passed in using a field reference.
-
-```yaml
-env:
-...
-  DD_AGENT_HOST:
-    valueFrom:
-      fieldRef:
-        fieldPath: status.hostIP
-...
-dblessConfig:
-  config:
-    _format_version: "2.1"
-    plugins:
-      - name: ddtrace
-        config:
-          service_name: kong-ddtrace
-          agent_host: "{vault://env/dd-agent-host}"
-          environment: 'dev'
-...
-```
+This value can also be set using the environment variable `DD_AGENT_HOST` and overrides any other specified value, including the default setting.
 
 ### Agent URL
 
@@ -70,8 +49,9 @@ The URL that will be used to connect to the agent. The value should not include 
 
 `--data 'config.trace_agent_url=http://localhost:8126'`
 
-This value can use vault references. By default, the value of the environment variale `DD_TRACE_AGENT_URL` is used by resolving `vault://env/dd-trace-agent-url`.
-When this variable is not set, the default is `http://localhost:8126`.
+The default value is `http://localhost:8126`.
+
+The value set through the environment variable `DD_TRACE_AGENT_URL` overrides any other specified value, including the default setting.
 
 ### Agent Endpoint (deprecated)
 
@@ -88,27 +68,23 @@ The service name represents the application or component that is producing trace
 
 `--data 'config.service_name=your-preferred-name'`
 
-This value can use vault references. By default, the value of the environment variale `DD_SERVICE` is used by resolving `vault://env/dd-service`.
-When this variable is not set, the default is `kong`.
+The value set through the environment variable `DD_SERVICE` overrides any other specified value, including the default setting.
 
 ### Environment
 
-The environment is a larger grouping of related services, such as `prod`, `staging` or `dev`.
+The environment is a larger grouping of related services, such as `prod`, `staging` or `dev`. By default, generated spans will not have an `environment` tag.
 
 `--data 'config.environment=prod'`
 
-This value can use vault references. By default, the value of the environment variale `DD_ENV` is used by resolving `vault://env/dd-env`.
-When this variable is not set, spans will not have an `environment` tag.
+The value set through the environment variable `DD_ENV` overrides any other specified value, including the default setting.
 
 ### Version
 
-The version is a user-defined value for tracking a application version, or a versioned combination of applications, configuration, and other assets.
-This is useful in both static deployments and CI/CD workflows.
+The version is a user-defined value for tracking a application version, or a versioned combination of applications, configuration, and other assets. By default, generated spans will not have a `version` tag.
 
 `--data 'config.version=1234'`
 
-This value can use vault references. By default, the value of the environment variale `DD_VERSION` is used by resolving `vault://env/dd-version`.
-When this variable is not set, spans will not have a `version` tag.
+The value set through the environment variable `DD_VERSION` overrides any other specified value, including the default setting.
 
 ### Sampling Controls
 
@@ -226,9 +202,9 @@ If the `DD_API_KEY` was correctly set, then the trace should appear at https://a
 
 ### Built-in Tests
 
-The built-in tests can be executed by running `pongo run`.
+The built-in tests can be executed by running `pongo run --no-datadog-agent`.
 
-A report for test coverage is produced when run with additional options: `pongo run -- --coverage`.
+A report for test coverage is produced when run with additional options: `pongo run --no-datadog-agent -- --coverage`.
 
 ## Issues and Incomplete features
 
