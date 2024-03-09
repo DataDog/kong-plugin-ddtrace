@@ -3,10 +3,10 @@ The internal data structure is used by Datadog's v0.4 trace api endpoint.
 It is encoded in msgpack using the customized encoder.
 ]]
 
-local ffi = require "ffi"
+local ffi = require("ffi")
 
-local utils = require "kong.tools.utils"
-local dd_utils = require "kong.plugins.ddtrace.utils"
+local utils = require("kong.tools.utils")
+local dd_utils = require("kong.plugins.ddtrace.utils")
 local rand_bytes = utils.get_rand_bytes
 local byte = string.byte
 
@@ -20,8 +20,26 @@ local int64_t = ffi.typeof("int64_t")
 
 local function random_64bit()
     local x = rand_bytes(8)
-    local b = {1ULL * byte(x,1), 1ULL * byte(x,2), 1ULL * byte(x,3), 1ULL * byte(x,4), 1ULL * byte(x,5), 1ULL * byte(x,6), 1ULL * byte(x,7), 1ULL * byte(x,8)}
-    local id = bit.bor(bit.lshift(b[1], 56), bit.lshift(b[2], 48), bit.lshift(b[3], 40), bit.lshift(b[4], 32), bit.lshift(b[5], 24), bit.lshift(b[6], 16), bit.lshift(b[7], 8), b[8])
+    local b = {
+        1ULL * byte(x, 1),
+        1ULL * byte(x, 2),
+        1ULL * byte(x, 3),
+        1ULL * byte(x, 4),
+        1ULL * byte(x, 5),
+        1ULL * byte(x, 6),
+        1ULL * byte(x, 7),
+        1ULL * byte(x, 8),
+    }
+    local id = bit.bor(
+        bit.lshift(b[1], 56),
+        bit.lshift(b[2], 48),
+        bit.lshift(b[3], 40),
+        bit.lshift(b[4], 32),
+        bit.lshift(b[5], 24),
+        bit.lshift(b[6], 16),
+        bit.lshift(b[7], 8),
+        b[8]
+    )
     return id
 end
 
@@ -31,18 +49,28 @@ local function legacy_63bit_ids_generator()
 end
 
 local function trace_64bit_ids_generator(_)
-    return {high=nil, low=legacy_63bit_ids_generator()}
+    return { high = nil, low = legacy_63bit_ids_generator() }
 end
 
 local function trace_128bit_ids_generator(now_us)
     local now_s = uint64_t(now_us / 1000000)
     local msb = bit.lshift(now_s, 32)
-    return {high=msb, low=random_64bit()}
+    return { high = msb, low = random_64bit() }
 end
 
-local function new(service, name, resource,
-    trace_id, span_id, parent_id,
-    start_us, sampling_priority, origin, generate_128bit_trace_ids, root)
+local function new(
+    service,
+    name,
+    resource,
+    trace_id,
+    span_id,
+    parent_id,
+    start_us,
+    sampling_priority,
+    origin,
+    generate_128bit_trace_ids,
+    root
+)
     assert(type(name) == "string" and name ~= "", "invalid span name")
     assert(type(resource) == "string" and resource ~= "", "invalid span resource")
     assert(trace_id == nil or type(trace_id) == "table", "invalid trace id")
@@ -66,7 +94,7 @@ local function new(service, name, resource,
     end
 
     local meta = {
-      language = "lua"
+        language = "lua",
     }
 
     if root == nil and trace_id.high ~= nil then
@@ -94,7 +122,6 @@ local function new(service, name, resource,
     }, span_mt)
 end
 
-
 function span_methods:set_sampling_priority(sampling_priority)
     self.sampling_priority = sampling_priority
     self.metrics["_sampling_priority_v1"] = sampling_priority
@@ -102,7 +129,7 @@ end
 
 function span_methods:set_tags(tags)
     assert(type(tags) == "table")
-    for k,v in pairs(tags) do
+    for k, v in pairs(tags) do
         self:set_tag(k, v)
     end
 end
@@ -123,7 +150,6 @@ function span_methods:new_child(name, resource, start)
     )
 end
 
-
 function span_methods:finish(finish_timestamp)
     assert(self.duration == nil, "span already finished")
     assert(ffi.istype(int64_t, finish_timestamp) and finish_timestamp >= 0, "invalid span finish_timestamp")
@@ -133,13 +159,14 @@ function span_methods:finish(finish_timestamp)
     return true
 end
 
-
 function span_methods:set_tag(key, value)
     assert(type(key) == "string", "invalid tag key")
     if value ~= nil then -- Validate value
         local vt = type(value)
-        assert(vt == "string" or vt == "number" or vt == "boolean",
-        "invalid tag value (expected string, number, boolean or nil)")
+        assert(
+            vt == "string" or vt == "number" or vt == "boolean",
+            "invalid tag value (expected string, number, boolean or nil)"
+        )
     end
     if value then
         self.meta[key] = tostring(value)
@@ -155,17 +182,16 @@ function span_methods:set_http_header_tags(header_tags, get_request_header, get_
         local res_header_value = get_response_header(header_name)
 
         if req_header_value then
-          local tag = (tag_entry.normalized and "http.request.headers." .. tag_entry.value) or tag_entry.value
-          self:set_tag(tag, dd_utils.concat(req_header_value, ","))
+            local tag = (tag_entry.normalized and "http.request.headers." .. tag_entry.value) or tag_entry.value
+            self:set_tag(tag, dd_utils.concat(req_header_value, ","))
         end
 
         if res_header_value then
-          local tag = (tag_entry.normalized and "http.response.headers." .. tag_entry.value) or tag_entry.value
-          self:set_tag(tag, dd_utils.concat(res_header_value, ","))
+            local tag = (tag_entry.normalized and "http.response.headers." .. tag_entry.value) or tag_entry.value
+            self:set_tag(tag, dd_utils.concat(res_header_value, ","))
         end
     end
 end
-
 
 return {
     new = new,

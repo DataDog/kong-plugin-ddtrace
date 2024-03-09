@@ -1,6 +1,6 @@
-local resty_http = require "resty.http"
-local encoder = require "kong.plugins.ddtrace.msgpack_encode"
-local table =  require "table"
+local resty_http = require("resty.http")
+local encoder = require("kong.plugins.ddtrace.msgpack_encode")
+local table = require("table")
 
 local agent_writer_methods = {}
 local agent_writer_mt = {
@@ -38,7 +38,6 @@ local function encode_span(span)
     })
 end
 
-
 function agent_writer_methods:add(spans)
     local i = self.trace_segments_n + 1
 
@@ -50,7 +49,6 @@ function agent_writer_methods:add(spans)
     self.trace_segments[i] = buffer
     self.trace_segments_n = i
 end
-
 
 function agent_writer_methods:flush()
     if self.trace_segments_n == 0 then
@@ -76,14 +74,13 @@ function agent_writer_methods:flush()
         method = "POST",
         headers = {
             ["content-type"] = "application/msgpack",
-            ['X-Datadog-Trace-Count'] = trace_count,
-            ['Datadog-Meta-Lang'] = "lua",
-            ['Datadog-Meta-Lang-Interpreter'] = "LuaJIT",
-            ['Datadog-Meta-Lang-Version'] = jit.version,
-            ['Datadog-Meta-Tracer-Version'] = self.tracer_version,
-
+            ["X-Datadog-Trace-Count"] = trace_count,
+            ["Datadog-Meta-Lang"] = "lua",
+            ["Datadog-Meta-Lang-Interpreter"] = "LuaJIT",
+            ["Datadog-Meta-Lang-Version"] = jit.version,
+            ["Datadog-Meta-Tracer-Version"] = self.tracer_version,
         },
-        body = payload
+        body = payload,
     })
     -- TODO: on failure, retry?
     if not res then
@@ -95,7 +92,6 @@ function agent_writer_methods:flush()
 
     return true
 end
-
 
 return {
     new = new,

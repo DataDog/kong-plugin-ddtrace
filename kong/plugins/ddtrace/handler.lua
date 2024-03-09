@@ -1,7 +1,7 @@
-local new_sampler = require "kong.plugins.ddtrace.sampler".new
-local new_trace_agent_writer = require "kong.plugins.ddtrace.agent_writer".new
-local propagator = require "kong.plugins.ddtrace.propagation"
-local utils = require "kong.plugins.ddtrace.utils"
+local new_sampler = require("kong.plugins.ddtrace.sampler").new
+local new_trace_agent_writer = require("kong.plugins.ddtrace.agent_writer").new
+local propagator = require("kong.plugins.ddtrace.propagation")
+local utils = require("kong.plugins.ddtrace.utils")
 
 local pcall = pcall
 local subsystem = ngx.config.subsystem
@@ -37,7 +37,7 @@ local sampler
 local header_tags
 local ddtrace_conf
 
-local ngx_now            = ngx.now
+local ngx_now = ngx.now
 
 -- Memoize some data attached to traces
 local ngx_worker_pid = ngx.worker.pid()
@@ -46,12 +46,10 @@ local ngx_worker_count = ngx.worker.count()
 -- local kong_cluster_id = kong.cluster.get_id()
 local kong_node_id = kong.node.get_id()
 
-
 -- ngx.now in microseconds
 local function ngx_now_mu()
     return ngx_now() * 1000000
 end
-
 
 local function get_agent_writer(conf, agent_url)
     if agent_writer_cache[conf] == nil then
@@ -59,7 +57,6 @@ local function get_agent_writer(conf, agent_url)
     end
     return agent_writer_cache[conf]
 end
-
 
 local function tag_with_service_and_route(span)
     local service = kong.router.get_service()
@@ -84,23 +81,16 @@ local function tag_with_service_and_route(span)
     end
 end
 
-
 -- adds the proxy span to the datadog context, unless it already exists
 local function get_or_add_proxy_span(datadog, timestamp)
     if not datadog.proxy_span then
         local request_span = datadog.request_span
-        datadog.proxy_span = request_span:new_child(
-        request_span.name,
-        "proxy",
-        timestamp
-        )
+        datadog.proxy_span = request_span:new_child(request_span.name, "proxy", timestamp)
     end
     return datadog.proxy_span
 end
 
-
 local initialize_request
-
 
 -- initialize the request span and datadog context
 -- if being called the first time for this request.
@@ -114,7 +104,6 @@ local function get_datadog_context(conf, ctx)
     return datadog
 end
 
-
 -- check if a datadog context exists.
 -- used in the log phase to ensure we captured tracing data.
 local function has_datadog_context(ctx)
@@ -123,7 +112,6 @@ local function has_datadog_context(ctx)
     end
     return false
 end
-
 
 -- apply resource_name_rules to the provided URI
 -- and return a replacement value.
@@ -187,8 +175,8 @@ end
 local function configure(conf)
     local get_from_vault = kong.vault.get
     local get_env = function(env_name)
-      local env_value, _ = get_from_vault(string.format("{vault://env/%s}", env_name))
-      return env_value
+        local env_value, _ = get_from_vault(string.format("{vault://env/%s}", env_name))
+        return env_value
     end
 
     -- Build agent url
@@ -200,11 +188,11 @@ local function configure(conf)
     local agent_url = string.format("http://%s:%s", agent_host, agent_port)
 
     ddtrace_conf = {
-      __id__ = conf["__seq__"],
-      service = get_env("DD_SERVICE") or conf.service_name or "kong",
-      environment = get_env("DD_ENV") or conf.environment,
-      version = get_env("DD_VERSION") or conf.version,
-      agent_url = get_env("DD_TRACE_AGENT_URL") or conf.trace_agent_url or agent_url,
+        __id__ = conf["__seq__"],
+        service = get_env("DD_SERVICE") or conf.service_name or "kong",
+        environment = get_env("DD_ENV") or conf.environment,
+        version = get_env("DD_VERSION") or conf.version,
+        agent_url = get_env("DD_TRACE_AGENT_URL") or conf.trace_agent_url or agent_url,
     }
 
     agent_writer_timer = ngx.timer.every(2.0, flush_agent_writers)
@@ -234,7 +222,7 @@ if subsystem == "http" then
             start_us = ngx.ctx.KONG_PROCESSING_START * 1000000LL,
             -- TODO: decrease cardinality of path value
             resource = method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule),
-            generate_128bit_trace_ids = conf.generate_128bit_trace_ids
+            generate_128bit_trace_ids = conf.generate_128bit_trace_ids,
         }
 
         local request_span = propagator.extract_or_create_span(req, span_options, conf.max_header_size)
@@ -274,7 +262,7 @@ if subsystem == "http" then
         end
 
         local http_version = req.get_http_version()
-        local protocol = http_version and 'HTTP/'..http_version or nil
+        local protocol = http_version and "HTTP/" .. http_version or nil
 
         request_span.ip = kong.client.get_forwarded_ip()
         request_span.port = kong.client.get_forwarded_port()
@@ -305,7 +293,9 @@ if subsystem == "http" then
     function DatadogTraceHandler:configure(configs)
         local conf = configs and configs[1] or nil
         if conf then
-            local ok, message = pcall(function() configure(conf) end)
+            local ok, message = pcall(function()
+                configure(conf)
+            end)
             if not ok then
                 kong.log.err("failed to configure ddtrace:" .. message)
             end
@@ -313,7 +303,9 @@ if subsystem == "http" then
     end
 
     function DatadogTraceHandler:rewrite(conf)
-        local ok, message = pcall(function() self:rewrite_p(conf) end)
+        local ok, message = pcall(function()
+            self:rewrite_p(conf)
+        end)
         if not ok then
             kong.log.err("tracing error in DatadogTraceHandler:rewrite: " .. message)
         end
@@ -323,9 +315,10 @@ if subsystem == "http" then
         -- TODO: reconsider tagging rewrite-start timestamps on request spans
     end
 
-
     function DatadogTraceHandler:access(conf)
-        local ok, message = pcall(function() self:access_p(conf) end)
+        local ok, message = pcall(function()
+            self:access_p(conf)
+        end)
         if not ok then
             kong.log.err("tracing error in DatadogTraceHandler:access: " .. message)
         end
@@ -335,19 +328,19 @@ if subsystem == "http" then
         local datadog = get_datadog_context(conf, kong.ctx.plugin)
         local ngx_ctx = ngx.ctx
 
-        local access_start =
-        ngx_ctx.KONG_ACCESS_START and ngx_ctx.KONG_ACCESS_START * 1000
-        or ngx_now_mu()
+        local access_start = ngx_ctx.KONG_ACCESS_START and ngx_ctx.KONG_ACCESS_START * 1000 or ngx_now_mu()
         local proxy_span = get_or_add_proxy_span(datadog, access_start * 1000LL)
 
         local err = propagator.inject(proxy_span, kong.service.request.set_header, conf.max_header_size)
         if err then
-          kong.log.error("Failed to inject trace (id: " .. proxy_span.trace_id .. "). Reason: " .. err)
+            kong.log.error("Failed to inject trace (id: " .. proxy_span.trace_id .. "). Reason: " .. err)
         end
     end
 
     function DatadogTraceHandler:header_filter(conf) -- luacheck: ignore 212
-        local ok, message = pcall(function() self:header_filter_p(conf) end)
+        local ok, message = pcall(function()
+            self:header_filter_p(conf)
+        end)
         if not ok then
             kong.log.err("tracing error in DatadogTraceHandler:header_filter: " .. message)
         end
@@ -356,16 +349,17 @@ if subsystem == "http" then
     function DatadogTraceHandler:header_filter_p(conf) -- luacheck: ignore 212
         local datadog = get_datadog_context(conf, kong.ctx.plugin)
         local ngx_ctx = ngx.ctx
-        local header_filter_start_mu =
-        ngx_ctx.KONG_HEADER_FILTER_STARTED_AT and ngx_ctx.KONG_HEADER_FILTER_STARTED_AT * 1000
-        or ngx_now_mu()
+        local header_filter_start_mu = ngx_ctx.KONG_HEADER_FILTER_STARTED_AT
+                and ngx_ctx.KONG_HEADER_FILTER_STARTED_AT * 1000
+            or ngx_now_mu()
 
         get_or_add_proxy_span(datadog, header_filter_start_mu * 1000LL)
     end
 
-
     function DatadogTraceHandler:body_filter(conf) -- luacheck: ignore 212
-        local ok, message = pcall(function() self:body_filter_p(conf) end)
+        local ok, message = pcall(function()
+            self:body_filter_p(conf)
+        end)
         if not ok then
             kong.log.err("tracing error in DatadogTraceHandler:body_filter: " .. message)
         end
@@ -383,9 +377,10 @@ if subsystem == "http" then
     -- TODO: consider handling stream subsystem
 end
 
-
 function DatadogTraceHandler:log(conf) -- luacheck: ignore 212
-    local ok, message = pcall(function() self:log_p(conf) end)
+    local ok, message = pcall(function()
+        self:log_p(conf)
+    end)
     if not ok then
         kong.log.err("tracing error in DatadogTraceHandler:log: " .. message)
     end
@@ -403,12 +398,8 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
     local proxy_span = get_or_add_proxy_span(datadog, now_mu * 1000LL)
     local agent_writer = get_agent_writer(conf, ddtrace_conf.agent_url)
 
-    local proxy_finish_mu =
-    ngx_ctx.KONG_BODY_FILTER_ENDED_AT and ngx_ctx.KONG_BODY_FILTER_ENDED_AT * 1000
-    or now_mu
-    local request_finish_mu =
-    ngx_ctx.KONG_LOG_START and ngx_ctx.KONG_LOG_START * 1000
-    or now_mu
+    local proxy_finish_mu = ngx_ctx.KONG_BODY_FILTER_ENDED_AT and ngx_ctx.KONG_BODY_FILTER_ENDED_AT * 1000 or now_mu
+    local request_finish_mu = ngx_ctx.KONG_LOG_START and ngx_ctx.KONG_LOG_START * 1000 or now_mu
 
     -- TODO: consider handling stream subsystem
 
@@ -446,7 +437,7 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
         end
 
         if header_tags then
-          request_span:set_http_header_tags(header_tags, kong.request.get_header, kong.response.get_header)
+            request_span:set_http_header_tags(header_tags, kong.request.get_header, kong.response.get_header)
         end
     end
     if ngx_ctx.authenticated_consumer then
@@ -459,8 +450,7 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
 
     proxy_span:finish(proxy_finish_mu * 1000LL)
     request_span:finish(request_finish_mu * 1000LL)
-    agent_writer:add({request_span, proxy_span})
+    agent_writer:add({ request_span, proxy_span })
 end
-
 
 return DatadogTraceHandler

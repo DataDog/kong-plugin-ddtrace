@@ -6,7 +6,7 @@ The main mechanisms are a rule-based sampler using user-defined rules,
 and a rate-based sampler using rates provided by the Datadog agent.
 ]]
 
-local cjson = require "cjson.safe"
+local cjson = require("cjson.safe")
 cjson.decode_array_with_array_mt(true)
 
 local sampler_methods = {}
@@ -35,12 +35,11 @@ local function max_id_for_rate(rate)
     local factors = { 10, 100, 1000, 10000 }
     local rate_string = string.format("%.4f", rate)
     for i, x in ipairs(factors) do
-        local digit = 1ULL * tonumber(rate_string:sub(i+2, i+2))
+        local digit = 1ULL * tonumber(rate_string:sub(i + 2, i + 2))
         max_id = max_id + (0xFFFFFFFFFFFFFFFFULL / x) * digit
     end
     return max_id
 end
-
 
 -- these values are used for agent-based sampling rates
 -- which is applied when the initial sampling rates are exhausted
@@ -54,7 +53,7 @@ local function new(samples_per_second, sample_rate)
     local samples_per_second_uint = samples_per_second * 1ULL
     local samples_per_decisecond = samples_per_second_uint / 10
     local remainder = samples_per_second_uint % 10
-    for i = 0,9 do
+    for i = 0, 9 do
         sampled_traces[i] = 0
         if remainder > i then
             sampling_limits[i] = tonumber(samples_per_decisecond + 1)
@@ -91,7 +90,7 @@ local function apply_initial_sample_rate(sampler, span)
     local span_start_interval = span.start / 1000000000ULL
     if sampler.last_sample_interval then
         if span_start_interval > sampler.last_sample_interval then
-            if sampler.sample_rate > 0.0  and sampler.spans_counted > 0 then
+            if sampler.sample_rate > 0.0 and sampler.spans_counted > 0 then
                 -- update calculations
                 local total_sampled = 0
                 for i = 0, 9 do
@@ -102,10 +101,10 @@ local function apply_initial_sample_rate(sampler, span)
                 sampler.spans_counted = 0
             end
             sampler.last_sample_interval = span_start_interval
-        -- else
-        --     if this started earlier than the last sample interval and we've just reset things,
-        --     then we can't do much about it
-        --     this is checked for later as well
+            -- else
+            --     if this started earlier than the last sample interval and we've just reset things,
+            --     then we can't do much about it
+            --     this is checked for later as well
         end
     else
         sampler.last_sample_interval = span_start_interval
@@ -148,7 +147,6 @@ local function apply_agent_sample_rate(sampler, span)
     return false, false
 end
 
-
 -- make a sampling decision for the trace
 -- if an initial sample rate is configured, apply that.
 -- otherwise use rates that are calculated by the agent.
@@ -181,6 +179,20 @@ function sampler_methods:sample(span)
     return true
 end
 
+local function parse_sampling_rule(key, value)
+    if type(key) ~= "string" then
+        return nil, "rate_by_service key has type " .. type(key) .. ", expected string"
+    end
+    if type(value) ~= "number" then
+        return nil, "rate_by_service value has type " .. type(value) .. ", expected number"
+    end
+    if value < 0.0 or value > 1.0 then
+        return nil, "rate_by_service value out of expected range: " .. value
+    end
+
+    return { rate = value, max_id = max_id_for_rate(value) }
+end
+
 function sampler_methods:update_sampling_rates(json_payload)
     local agent_update, err = cjson.decode(json_payload)
     if err then
@@ -201,31 +213,17 @@ function sampler_methods:update_sampling_rates(json_payload)
     -- update table with new rates
     local parsed_ok = true
     for key, value in pairs(rate_by_service) do
-        if type(key) ~= "string" then
-            kong.log.err("rate_by_service key has type " .. type(key) .. ", expected string")
+        local rule, err = parse_sampling_rule(key, value)
+        if err then
+            kong.log.err(err)
             parsed_ok = false
-            goto continue
+        else
+            self.agent_sample_rates[key] = rule
         end
-        if type(value) ~= "number" then
-            kong.log.err("rate_by_service value has type " .. type(value) .. ", expected number")
-            parsed_ok = false
-            goto continue
-        end
-        if value < 0.0 or value > 1.0 then
-            kong.log.err("rate_by_service value out of expected range: " .. value)
-            parsed_ok = false
-            goto continue
-        end
-        self.agent_sample_rates[key] = {
-            rate = value,
-            max_id = max_id_for_rate(value),
-        }
-        ::continue::
     end
 
     return parsed_ok
 end
-
 
 return {
     new = new,
