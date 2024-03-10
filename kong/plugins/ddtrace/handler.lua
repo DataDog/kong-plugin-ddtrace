@@ -85,7 +85,7 @@ end
 local function get_or_add_proxy_span(datadog, timestamp)
     if not datadog.proxy_span then
         local request_span = datadog.request_span
-        datadog.proxy_span = request_span:new_child(request_span.name, "proxy", timestamp)
+        datadog.proxy_span = request_span:new_child("kong.proxy", request_span.resource, timestamp)
     end
     return datadog.proxy_span
 end
@@ -218,7 +218,7 @@ if subsystem == "http" then
 
         local span_options = {
             service = ddtrace_conf.service,
-            name = "kong.plugin.ddtrace",
+            name = "kong.request",
             start_us = ngx.ctx.KONG_PROCESSING_START * 1000000LL,
             -- TODO: decrease cardinality of path value
             resource = method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule),
