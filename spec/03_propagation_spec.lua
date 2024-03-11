@@ -1,9 +1,9 @@
-local propagator = require "kong.plugins.ddtrace.propagation"
+local propagator = require("kong.plugins.ddtrace.propagation")
 
 _G.kong = {
     log = {
-        warn = function(s) end
-    }
+        warn = function(s) end,
+    },
 }
 
 local default_span_opts = {
@@ -11,7 +11,7 @@ local default_span_opts = {
     name = "kong.handle",
     start_us = 1708943277 * 1000000LL,
     resource = "default_resource",
-    generate_128bit_trace_ids = true
+    generate_128bit_trace_ids = true,
 }
 
 local default_max_header_size = 512
@@ -31,4 +31,3 @@ describe("trace propagation", function()
         pending("Until another propagation mechanism is implemented")
     end)
 end)
-

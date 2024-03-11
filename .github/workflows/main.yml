@@ -4,14 +4,13 @@ on: [push, workflow_dispatch]
 jobs:
   format:
     runs-on: ubuntu-22.04
+    container: "datadog/docker-library:kong-plugin-ddtrace-ci"
     steps:
       - uses: actions/checkout@v3
-      - name: Setup lua
-        run: |
-          sudo apt update
-          sudo apt install -y lua5.3 luarocks liblua5.3-dev
-          sudo luarocks install luacheck
-      - run: luacheck kong spec
+      - name: "Lint"
+        run: stylua --check kong/ spec/
+      - name: "Static analysis"
+        run: luacheck kong spec
 
   run-test:
     runs-on: ubuntu-22.04
