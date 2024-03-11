@@ -93,7 +93,7 @@ return {
                     -- priority of values for agent address details are resolved in new_trace_agent_writer
                     { agent_host = typedefs.host({ default = "localhost" }) },
                     { trace_agent_port = { type = "integer", default = 8126, gt = 0 } },
-                    { trace_agent_url = typedefs.url({ default = "localhost:8126" }) },
+                    { trace_agent_url = typedefs.url({ default = "http://localhost:8126" }) },
                     {
                         static_tags = {
                             type = "array",
