@@ -9,7 +9,6 @@ local agent_writer_mt = {
 
 local function new(agent_url, sampler, tracer_version)
     local traces_endpoint = string.format("%s/v0.4/traces", agent_url)
-    kong.log.notice("traces will be sent to the agent at " .. traces_endpoint)
 
     return setmetatable({
         traces_endpoint = traces_endpoint,

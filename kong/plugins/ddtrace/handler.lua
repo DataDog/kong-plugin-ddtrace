@@ -195,6 +195,8 @@ local function configure(conf)
         agent_url = get_env("DD_TRACE_AGENT_URL") or conf.trace_agent_url or agent_url,
     }
 
+    kong.log.info("DATADOG TRACER CONFIGURATION - " .. utils.dump(ddtrace_conf))
+
     agent_writer_timer = ngx.timer.every(2.0, flush_agent_writers)
     sampler = new_sampler(math.ceil(conf.initial_samples_per_second / ngx_worker_count), conf.initial_sample_rate)
 
