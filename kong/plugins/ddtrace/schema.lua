@@ -88,12 +88,12 @@ return {
             config = {
                 type = "record",
                 fields = {
-                    { service_name = { type = "string", required = true, default = "kong" } },
+                    { service_name = { type = "string", required = true } },
                     { environment = { type = "string" } },
                     -- priority of values for agent address details are resolved in new_trace_agent_writer
-                    { agent_host = typedefs.host({ default = "localhost" }) },
-                    { trace_agent_port = { type = "integer", default = 8126, gt = 0 } },
-                    { trace_agent_url = typedefs.url({ default = "http://localhost:8126" }) },
+                    { agent_host = typedefs.host({}) },
+                    { trace_agent_port = { type = "integer", gt = 0 } },
+                    { trace_agent_url = typedefs.url() },
                     {
                         static_tags = {
                             type = "array",

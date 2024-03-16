@@ -43,6 +43,16 @@ The default value is `localhost`.
 
 This value can also be set using the environment variable `DD_AGENT_HOST` and overrides any other specified value, including the default setting.
 
+### Agent Port
+
+The port that will be used to connect to the agent.
+
+`--data 'config.trace_agent_port=your-agent-port'`
+
+The default value is `8126`.
+
+This value can also be set using the environment variable `DD_TRACE_AGENT_PORT` and overrides any other specified value, including the default setting.
+
 ### Agent URL
 
 The URL that will be used to connect to the agent. The value should not include the trailing `/` character.
