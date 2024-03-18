@@ -97,6 +97,10 @@ The version is a user-defined value for tracking a application version, or a ver
 
 The value set through the environment variable `DD_VERSION` overrides any other specified value, including the default setting.
 
+### Propagation Styles
+
+TBD
+
 ### Sampling Controls
 
 Sampling of traces is required in environments with high traffic load to reduce the amount of trace data produced and ingested by Datadog.
@@ -174,6 +178,10 @@ When configuring a Kong plugin using `curl`, the `--data` values should be wrapp
 
 Additional details about regular expressions can be found in OpenResty documentation for [ngx.re.match](https://github.com/openresty/lua-nginx-module#ngxrematch) and [ngx.re.sub
 ](https://github.com/openresty/lua-nginx-module#ngxresub) which are used to apply the resource name rules.
+
+### Propagation Style
+
+TBD
 
 ## Testing
 

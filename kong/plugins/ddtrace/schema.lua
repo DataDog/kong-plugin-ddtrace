@@ -81,6 +81,27 @@ end
 local deprecated_agent_endpoint =
     make_deprecated_config("agent_endpoint is deprecated. Please use trace_agent_url or agent_host instead")
 
+-- TODO: find a better way with kong.Schema interface
+local function validate_propagation_style(styles)
+    if type(styles) ~= "table" then
+        return nil, "expect a table"
+    end
+
+    local allowed_styles = {
+        datadog = 1,
+        tracecontext = 1,
+    }
+
+    for i = 1, #styles do
+        local found = allowed_styles[styles[i]]
+        if not found then
+            return nil, "unexpected style"
+        end
+    end
+
+    return true
+end
+
 return {
     name = "ddtrace",
     fields = {
@@ -108,6 +129,22 @@ return {
                     { header_tags = { type = "array", elements = header_tag, custom_validator = validate_header_tag } },
                     { max_header_size = { type = "integer", default = 512, between = { 0, 512 } } },
                     { generate_128bit_trace_ids = { type = "boolean", default = true } },
+                    {
+                        injection_propagation_styles = {
+                            type = "array",
+                            elements = { type = "string" },
+                            custom_validator = validate_propagation_style,
+                            default = { "datadog", "tracecontext" },
+                        },
+                    },
+                    {
+                        extraction_propagation_styles = {
+                            type = "array",
+                            elements = { type = "string" },
+                            custom_validator = validate_propagation_style,
+                            default = { "datadog", "tracecontext" },
+                        },
+                    },
                     -- Deprecated:
                     { agent_endpoint = { type = "string", custom_validator = deprecated_agent_endpoint } },
                 },

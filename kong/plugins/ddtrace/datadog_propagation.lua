@@ -1,29 +1,11 @@
 -- Propagation methods for Datadog APM: extraction and injection of datadog-specific request headers.
-
-local ffi = require("ffi")
-ffi.cdef([[
-unsigned long long int strtoull(const char *nptr, char **endptr, int base);
-]])
+local parse_uint64 = require("kong.plugins.ddtrace.utils").parse_uint64
 
 local function id_to_string(id)
     -- when concerted to a string, uint64_t values have ULL at the end of the string.
     -- string.sub is used to remove the last 3 characters.
     local str_id = tostring(id)
     return string.sub(str_id, 1, #str_id - 3)
-end
-
-local function parse_uint64(str, base)
-    if not str then
-        return nil, "unable to parse, value is nil"
-    end
-    ffi.errno(0)
-    local parsed_str = ffi.C.strtoull(str, nil, base)
-    local err = ffi.errno()
-    if err ~= 0 then
-        return nil, "unable to parse '" .. str .. "' (base " .. base .. ") as 64-bit number, errno=" .. err
-    end
-    -- TODO: check the entire string was consumed, instead of partially decoded
-    return parsed_str, nil
 end
 
 local function parse_dd_tags(s)
@@ -65,12 +47,12 @@ local function extract_datadog(get_header, max_header_size)
     local trace_id_value = get_header("x-datadog-trace-id")
     if not trace_id_value then
         -- no trace ID found, therefore create a new span
-        return nil, nil, nil, nil, nil, nil, nil
+        return nil, nil
     end
     local trace_id_low, err = parse_uint64(trace_id_value, 10)
     if err then
         -- tracing was desired but the value wasn't understood
-        return nil, nil, nil, nil, nil, nil, err
+        return nil, err
     end
 
     -- other headers are expected but aren't provided in all cases
@@ -108,10 +90,19 @@ local function extract_datadog(get_header, max_header_size)
         end
     end
 
-    return trace_id, parent_id, sampling_priority, origin, dd_tags, nil
+    return {
+        trace_id = trace_id,
+        parent_id = parent_id,
+        sampling_priority = sampling_priority,
+        origin = origin,
+        tags = dd_tags,
+    },
+        nil
 end
 
-local function inject_datadog(span, set_header, max_header_size)
+local function inject_datadog(span, request, max_header_size)
+    local set_header = request.set_header
+
     if not span then
         return "unable to inject: nil span"
     end

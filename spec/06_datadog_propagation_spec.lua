@@ -40,20 +40,21 @@ describe("trace propagation", function()
 
             local get_header = make_getter(headers)
 
-            local trace_id, parent_id, sampling_priority, origin, tags, err = extract_datadog(get_header, 512)
+            local extracted, err = extract_datadog(get_header, 512)
             assert.is_nil(err)
+            assert.is_not_nil(extracted)
 
             local expected_trace_id = { high = nil, low = 12345678901234567890ULL }
-            assert.same(expected_trace_id, trace_id)
-            assert.equal(parent_id, 9876543210987654321ULL)
-            assert.equal(sampling_priority, 1)
-            assert.same(origin, "test-origin")
+            assert.same(expected_trace_id, extracted.trace_id)
+            assert.equal(9876543210987654321ULL, extracted.parent_id)
+            assert.equal(1, extracted.sampling_priority)
+            assert.same("test-origin", extracted.origin)
 
             local expected_tags = {
                 ["_dd.p.dm"] = "-4",
             }
 
-            assert.same(expected_tags, tags)
+            assert.same(expected_tags, extracted.tags)
         end)
         it("extracts 128bit trace", function()
             local headers = {
@@ -65,16 +66,16 @@ describe("trace propagation", function()
             }
             local get_header = make_getter(headers)
 
-            local trace_id, parent_id, sampling_priority, origin, tags, err = extract_datadog(get_header, 512)
+            local extracted, err = extract_datadog(get_header, 512)
             assert.is_nil(err)
 
             local expected_trace_id = { high = 14676805356772917248ULL, low = 12345678901234567890ULL }
-            assert.same(trace_id, expected_trace_id)
-            assert.equal(parent_id, 9876543210987654321ULL)
-            assert.equal(sampling_priority, 1)
-            assert.same(origin, "test-origin")
-            assert.equal("cbae7cb600000000", tags["_dd.p.tid"])
-            assert.equal("-0", tags["_dd.p.dm"])
+            assert.same(extracted.trace_id, expected_trace_id)
+            assert.equal(extracted.parent_id, 9876543210987654321ULL)
+            assert.equal(extracted.sampling_priority, 1)
+            assert.same(extracted.origin, "test-origin")
+            assert.equal("cbae7cb600000000", extracted.tags["_dd.p.tid"])
+            assert.equal("-0", extracted.tags["_dd.p.dm"])
         end)
 
         describe("datadog tags extraction", function()
@@ -97,9 +98,9 @@ describe("trace propagation", function()
 
                 local get_header = make_getter(headers)
 
-                local _, _, _, _, tags, err = extract_datadog(get_header, 512)
+                local extracted, err = extract_datadog(get_header, 512)
                 assert.is_nil(err)
-                assert.same(tags, expected_tags)
+                assert.same(expected_tags, extracted.tags)
             end)
 
             it("only certains tags are extracted", function()
@@ -113,9 +114,9 @@ describe("trace propagation", function()
                 }
 
                 local get_header = make_getter(headers)
-                local _, _, _, _, tags, err = extract_datadog(get_header, 512)
+                local extracted, err = extract_datadog(get_header, 512)
                 assert.is_nil(err)
-                assert.same(expected_tags, tags)
+                assert.same(expected_tags, extracted.tags)
             end)
 
             describe("maximum header size", function()
@@ -125,9 +126,9 @@ describe("trace propagation", function()
                 local get_header = make_getter(headers)
                 it("is zero", function()
                     local max_header_size = 0
-                    local _, _, _, _, tags, err = extract_datadog(get_header, max_header_size)
+                    local extracted, err = extract_datadog(get_header, max_header_size)
                     assert.is_nil(err)
-                    assert.equal(0, #tags)
+                    assert.equal(0, #extracted.tags)
                 end)
 
                 it("reached", function()
@@ -136,48 +137,41 @@ describe("trace propagation", function()
                     }
 
                     local max_header_size = 1
-                    local _, _, _, _, tags, err = extract_datadog(get_header, max_header_size)
+                    local extracted, err = extract_datadog(get_header, max_header_size)
                     assert.is_nil(err)
-                    assert.same(expected_tags, tags)
+                    assert.same(expected_tags, extracted.tags)
                 end)
             end)
         end)
     end)
 
     describe("injection", function()
-        it("injects the trace into headers", function()
-            -- add kong.service.request.set_header method
-            local headers = {}
-            local headers_set = 0
-            local set_header = function(key, value)
+        local headers = {}
+        local request = {
+            get_header = function(header)
+                return nil
+            end,
+            set_header = function(key, value)
                 headers[key] = value
-                headers_set = headers_set + 1
-            end
-
+            end,
+        }
+        it("injects the trace into headers", function()
             local start_time = 1700000000000000000LL
             local duration = 100000000LL
             local span =
                 new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, false, nil)
-            inject_datadog(span, set_header, 512)
+            inject_datadog(span, request, 512)
             span:finish(start_time + duration)
-            assert.equal(2, headers_set)
             assert.equal(id_to_string(span.trace_id.low), headers["x-datadog-trace-id"])
             assert.equal(id_to_string(span.span_id), headers["x-datadog-parent-id"])
         end)
         it("injects 128 bit trace id", function()
-            local headers = {}
-            local headers_set = 0
-            local set_header = function(key, value)
-                headers[key] = value
-                headers_set = headers_set + 1
-            end
             local start_time = 1700000000000000000LL
             local duration = 100000000LL
             local span =
                 new_span("test_service", "test_name", "test_resource", nil, nil, nil, start_time, nil, nil, true, nil)
-            inject_datadog(span, set_header, 512)
+            inject_datadog(span, request, 512)
             span:finish(start_time + duration)
-            assert.equal(headers_set, 3)
             assert.equal(id_to_string(span.trace_id.low), headers["x-datadog-trace-id"])
             assert.equal(id_to_string(span.span_id), headers["x-datadog-parent-id"])
             assert.is_string(headers["x-datadog-tags"])
@@ -185,13 +179,8 @@ describe("trace propagation", function()
         end)
 
         describe("datadog tags injection", function()
-            local headers = {}
-            local headers_set = 0
-            local set_header = function(key, value)
-                headers[key] = value
-                headers_set = headers_set + 1
-            end
-
+            -- reset `headers`
+            headers = {}
             local start_time = 1700000000000000000LL
 
             describe("maximum header size", function()
@@ -215,7 +204,7 @@ describe("trace propagation", function()
                         nil
                     )
                     span:set_tags(propagation_tags)
-                    inject_datadog(span, set_header, max_header_size)
+                    inject_datadog(span, request, max_header_size)
 
                     assert.is_nil(headers["x-datadog-tags"])
                     assert.equal(span.meta["_dd.propagation_error"], "disabled")
@@ -241,7 +230,7 @@ describe("trace propagation", function()
                         nil
                     )
                     span:set_tags(propagation_tags)
-                    inject_datadog(span, set_header, max_header_size)
+                    inject_datadog(span, request, max_header_size)
 
                     assert.is_nil(headers["x-datadog-tags"])
 
@@ -263,7 +252,7 @@ describe("trace propagation", function()
                     false,
                     nil
                 )
-                inject_datadog(span, set_header, 512)
+                inject_datadog(span, request, 512)
 
                 assert.is_nil(headers["x-datadog-tags"])
             end)
@@ -288,7 +277,7 @@ describe("trace propagation", function()
                     nil
                 )
                 span:set_tags(propagation_tags)
-                inject_datadog(span, set_header, 512)
+                inject_datadog(span, request, 512)
 
                 assert.is_not_nil(headers["x-datadog-tags"])
 
@@ -321,7 +310,7 @@ describe("trace propagation", function()
                 local child_start = start_time + 10
                 local child_span = span:new_child("child_span", "test_child_resource", child_start)
 
-                inject_datadog(child_span, set_header, 512)
+                inject_datadog(child_span, request, 512)
                 assert.is_not_nil(headers["x-datadog-tags"])
 
                 -- NOTE: can't assure tag's order in `x-datadog-tags`
@@ -349,11 +338,61 @@ describe("trace propagation", function()
                 local ok = sampler:sample(span)
                 assert.is_true(ok)
 
-                inject_datadog(span, set_header, 512)
+                inject_datadog(span, request, 512)
 
                 assert.is_not_nil(headers["x-datadog-tags"])
                 assert.is_true(string_contains(headers["x-datadog-tags"], "_dd.p.dm=-0"))
             end)
         end)
+    end)
+
+    -- TODO: extract -> inject -> ==?
+    describe("round-trip", function()
+        local expected_headers = {
+            ["x-datadog-trace-id"] = "12345678901234567890",
+            ["x-datadog-sampling-priority"] = "5",
+            ["x-datadog-origin"] = "test-round-trip-origin",
+            ["x-datadog-tags"] = "_dd.p.tid=cbae7cb600000000,_dd.p.dm=-3",
+        }
+
+        -- NOTE: `parent-id` will differ because the injected span will
+        -- generate a new span id.
+        local in_headers = expected_headers
+        in_headers["x-datadog-parent-id"] = "9876543210987654321"
+        local out_headers = {}
+        local request = {
+            get_header = make_getter(in_headers),
+            set_header = function(key, value)
+                out_headers[key] = value
+            end,
+        }
+
+        local extracted, err = extract_datadog(request.get_header, 512)
+        assert.is_not_nil(extracted)
+
+        local start_us = 1711027189 * 100000000LL
+        local span = new_span(
+            "kong-test",
+            "round-trip",
+            "resource",
+            extracted.trace_id,
+            nil,
+            extracted.parent_id,
+            start_us,
+            extracted.sampling_priority,
+            extracted.origin,
+            true,
+            nil
+        )
+        assert.is_not_nil(span)
+        span:set_tags(extracted.tags)
+
+        inject_datadog(span, request, 512)
+
+        assert.same(expected_headers["x-datadog-trace-id"], out_headers["x-datadog-trace-id"])
+        assert.same(expected_headers["x-datadog-sampling-priority"], out_headers["x-datadog-sampling-priority"])
+        assert.same(expected_headers["x-datadog-origin"], out_headers["x-datadog-origin"])
+        assert.is_true(string_contains(out_headers["x-datadog-tags"], "_dd.p.dm=-3"))
+        assert.is_true(string_contains(out_headers["x-datadog-tags"], "_dd.p.tid=cbae7cb600000000"))
     end)
 end)

@@ -1,3 +1,8 @@
+local ffi = require("ffi")
+ffi.cdef([[
+unsigned long long int strtoull(const char *nptr, char **endptr, int base);
+]])
+
 --[[
 `normalize_header_tags` processes a collection of header tags, normalizing
 and transforming them into a standardized format.
@@ -92,8 +97,37 @@ local function dump(o)
     end
 end
 
+local function parse_uint64(str, base)
+    if not str then
+        return nil, "unable to parse, value is nil"
+    end
+    ffi.errno(0)
+    local parsed_str = ffi.C.strtoull(str, nil, base)
+    local err = ffi.errno()
+    if err ~= 0 then
+        return nil, "unable to parse '" .. str .. "' (base " .. base .. ") as 64-bit number, errno=" .. err
+    end
+    -- TODO: check the entire string was consumed, instead of partially decoded
+    return parsed_str, nil
+end
+
+-- Joins the elements of a table into a single string using a specified separator.
+local function join_table(separator, table)
+    local result = ""
+    local length = #table
+    for i, v in ipairs(table) do
+        result = result .. v
+        if i < length then
+            result = result .. separator
+        end
+    end
+    return result
+end
+
 return {
     concat = concat,
     dump = dump,
+    join_table = join_table,
     normalize_header_tags = normalize_header_tags,
+    parse_uint64 = parse_uint64,
 }
