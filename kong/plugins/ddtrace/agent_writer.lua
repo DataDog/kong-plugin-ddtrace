@@ -29,6 +29,7 @@ local function encode_span(span)
         span_id = span.span_id,
         parent_id = span.parent_id,
         start = span.start,
+        duration = span.duration,
         sampling_priority = span.sampling_priority,
         origin = span.origin,
         meta = span.meta,
