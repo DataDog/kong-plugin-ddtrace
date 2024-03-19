@@ -10,6 +10,13 @@ local function make_getter(headers)
     return getter
 end
 
+local function id_to_string(id)
+    -- when concerted to a string, uint64_t values have ULL at the end of the string.
+    -- string.sub is used to remove the last 3 characters.
+    local str_id = tostring(id)
+    return string.sub(str_id, 1, #str_id - 3)
+end
+
 _G.kong = {
     log = {
         warn = function(s) end,
@@ -154,24 +161,16 @@ describe("trace propagation", function()
             inject_datadog(span, set_header, 512)
             span:finish(start_time + duration)
             assert.equal(2, headers_set)
-            assert.is_string(headers["x-datadog-trace-id"])
-            assert.is_string(headers["x-datadog-parent-id"])
+            assert.equal(id_to_string(span.trace_id.low), headers["x-datadog-trace-id"])
+            assert.equal(id_to_string(span.span_id), headers["x-datadog-parent-id"])
         end)
         it("injects 128 bit trace id", function()
-            -- add kong.service.request.set_header method
             local headers = {}
             local headers_set = 0
             local set_header = function(key, value)
                 headers[key] = value
                 headers_set = headers_set + 1
             end
-            _G.kong = {
-                service = {
-                    request = {
-                        set_header = set_header,
-                    },
-                },
-            }
             local start_time = 1700000000000000000LL
             local duration = 100000000LL
             local span =
@@ -179,8 +178,8 @@ describe("trace propagation", function()
             inject_datadog(span, set_header, 512)
             span:finish(start_time + duration)
             assert.equal(headers_set, 3)
-            assert.is_string(headers["x-datadog-trace-id"])
-            assert.is_string(headers["x-datadog-parent-id"])
+            assert.equal(id_to_string(span.trace_id.low), headers["x-datadog-trace-id"])
+            assert.equal(id_to_string(span.span_id), headers["x-datadog-parent-id"])
             assert.is_string(headers["x-datadog-tags"])
             assert.equal(headers["x-datadog-tags"], "_dd.p.tid=" .. bit.tohex(span.trace_id.high))
         end)

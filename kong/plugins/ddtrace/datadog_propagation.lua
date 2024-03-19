@@ -119,7 +119,7 @@ local function inject_datadog(span, set_header, max_header_size)
         return "unable to inject: span's trace_id is nil"
     end
 
-    set_header("x-datadog-trace-id", id_to_string(span.trace_id))
+    set_header("x-datadog-trace-id", id_to_string(span.trace_id.low))
     set_header("x-datadog-parent-id", id_to_string(span.span_id))
 
     if span.sampling_priority then
