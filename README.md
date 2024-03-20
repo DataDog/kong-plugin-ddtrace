@@ -1,4 +1,5 @@
 # Datadog APM Plugin for Kong
+[![codecov](https://codecov.io/github/DataDog/kong-plugin-ddtrace/graph/badge.svg?token=htSU1hFalA)](https://codecov.io/github/DataDog/kong-plugin-ddtrace)
 
 This plugin adds Datadog tracing to Kong.
 It was originally based on the [zipkin plugin](https://github.com/Kong/kong-plugin-zipkin), although it is now significantly modified for Datadog-specific functionality.

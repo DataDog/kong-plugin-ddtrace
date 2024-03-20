@@ -21,7 +21,12 @@ jobs:
           kong_version: stable
           pongo_version: latest
       - run: pongo run --no-datadog-agent -- --coverage
-      - name: Publish summary
+      - name: Publish code coverage summary
         run: |
           beg=$( grep -n "Summary" < luacov.report.out | cut -d ':' -f1 )
           tail --lines=+${beg} luacov.report.out >> $GITHUB_STEP_SUMMARY
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v4.0.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: DataDog/kong-plugin-ddtrace
