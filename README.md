@@ -222,16 +222,6 @@ A report for test coverage is produced when run with additional options: `pongo 
 - More details should be collected for errors
 - A high resolution timer option should be added (eg: using `clock_gettime` instead of `ngx.now()`)
 
-## Reporting an issue
-
-When reporting an issue, please provide the following:
-- Version of kong: the output of running `kong version`
-- Platform: kubernetes, docker, or the specific OS type
-- `ddtrace` version: the output of running `luarocks list kong-plugin-ddtrace`
-- Configuration Type: plugin enabled globally or for specific service(s)
-- Configuration Details: output of `curl -s http://localhost:8001/plugins/` for globally enabled and `curl -s http://localhost:8001/services/example-service/plugins/` for a service specifically named `example-service`
-- Detailed description of the problem, and if known, the expected behavior.
-
 ## Acknowledgements
 
 This plugin is based on the original Zipkin plugin developed and maintained by Kong. It provided the overall architecture and a number of implementation details that were used as-is in this plugin.
