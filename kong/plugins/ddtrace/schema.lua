@@ -2,10 +2,19 @@ local typedefs = require("kong.db.schema.typedefs")
 local Schema = require("kong.db.schema")
 
 local PROTECTED_TAGS = {
+    "env",
+    "version",
+    "component",
+    "span.kind",
     "error",
     "http.method",
-    "http.path",
+    "http.url",
     "http.status_code",
+    "http.useragent",
+    "http.client_ip",
+    "http.request.content_length",
+    "http.response.content_length",
+    "http.version",
     "kong.balancer.state",
     "kong.balancer.try",
     "kong.consumer",
@@ -13,7 +22,6 @@ local PROTECTED_TAGS = {
     "kong.node.id",
     "kong.route",
     "kong.service",
-    "lc",
     "peer.hostname",
 }
 

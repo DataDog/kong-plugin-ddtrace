@@ -255,6 +255,18 @@ if subsystem == "http" then
         -- Add metrics
         request_span.metrics["_dd.top_level"] = 1
 
+        -- Set standard tags
+        request_span:set_tag("component", "kong")
+        request_span:set_tag("span.kind", "server")
+
+        local url = req.get_scheme() .. "://" .. req.get_host() .. ":" .. req.get_port() .. path
+        request_span:set_tag("http.method", method)
+        request_span:set_tag("http.url", url)
+        request_span:set_tag("http.client_ip", kong.client.get_forwarded_ip())
+        request_span:set_tag("http.request.content_length", req.get_header("content-length"))
+        request_span:set_tag("http.useragent", req.get_header("user-agent"))
+        request_span:set_tag("http.version", req.get_http_version())
+
         -- Set nginx informational tags
         request_span:set_tag("nginx.version", ngx.config.nginx_version)
         request_span:set_tag("nginx.lua_version", ngx.config.ngx_lua_version)
@@ -271,20 +283,6 @@ if subsystem == "http" then
             request_span:set_tag("kong.role", kong.configuration.role)
             request_span:set_tag("kong.nginx_daemon", kong.configuration.nginx_daemon)
             request_span:set_tag("kong.database", kong.configuration.database)
-        end
-
-        local http_version = req.get_http_version()
-        local protocol = http_version and "HTTP/" .. http_version or nil
-
-        request_span.ip = kong.client.get_forwarded_ip()
-        request_span.port = kong.client.get_forwarded_port()
-
-        request_span:set_tag("lc", "kong")
-        request_span:set_tag("http.method", method)
-        request_span:set_tag("http.host", req.get_host())
-        request_span:set_tag("http.path", path)
-        if protocol then
-            request_span:set_tag("http.protocol", protocol)
         end
 
         local static_tags = conf and conf.static_tags or nil
@@ -457,9 +455,7 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
             request_span:set_http_header_tags(header_tags, kong.request.get_header, kong.response.get_header)
         end
     end
-    if ngx_ctx.authenticated_consumer then
-        request_span:set_tag("kong.consumer", ngx_ctx.authenticated_consumer.id)
-    end
+    request_span:set_tag("kong.consumer", ngx_ctx.authenticated_consumer.id)
     if conf and conf.include_credential and ngx_ctx.authenticated_credential then
         request_span:set_tag("kong.credential", ngx_ctx.authenticated_credential.id)
     end

@@ -167,13 +167,8 @@ function span_methods:set_tag(key, value)
             vt == "string" or vt == "number" or vt == "boolean",
             "invalid tag value (expected string, number, boolean or nil)"
         )
-    end
-    if value then
         self.meta[key] = tostring(value)
-    else
-        self.meta[key] = nil
     end
-    return true
 end
 
 function span_methods:set_http_header_tags(header_tags, get_request_header, get_response_header)
