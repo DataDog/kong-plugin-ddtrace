@@ -82,9 +82,8 @@ function propagator:extract_or_create_span(request, span_options)
 end
 
 function propagator:inject(request, span)
-    -- TODO: handle error
-    for i = 1, #self.extraction_styles do
-        local style = self.extraction_styles[i]
+    for i = 1, #self.injection_styles do
+        local style = self.injection_styles[i]
         local injector = injectors[style]
         local err = injector(span, request, self.max_header_size)
         if err then
