@@ -104,6 +104,7 @@ Specify propagation styles for extracting or injecting tracing headers
 To configure injection styles, set the `injection_propagation_styles` field:
 ```sh
 --data 'config.injection_propagation_styles[1]=datadog'
+```
 
 To configure extraction styles, use the `extraction_propagation_styles` field:
 ```sh
