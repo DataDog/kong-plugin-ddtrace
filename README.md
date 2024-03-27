@@ -102,8 +102,8 @@ The value set through the environment variable `DD_VERSION` overrides any other 
 Specify propagation styles for extracting or injecting tracing headers
 
 To configure injection styles, set the `injection_propagation_styles` field:
-`--data 'config.injection_propagation_styles[1]=datadog'`
-
+```sh
+--data 'config.injection_propagation_styles[1]=datadog'
 
 To configure extraction styles, use the `extraction_propagation_styles` field:
 ```sh
