@@ -1,6 +1,6 @@
 local new_sampler = require("kong.plugins.ddtrace.sampler").new
 local new_trace_agent_writer = require("kong.plugins.ddtrace.agent_writer").new
-local propagator = require("kong.plugins.ddtrace.propagation")
+local new_propagator = require("kong.plugins.ddtrace.propagation").new
 local utils = require("kong.plugins.ddtrace.utils")
 
 local pcall = pcall
@@ -33,6 +33,7 @@ end
 -- Because of the way timers work in lua, this can only be initialized when there's an
 -- active request. This gets initialized on the first request this plugin handles.
 local agent_writer_timer -- luacheck: ignore 231
+local propagator
 local sampler
 local header_tags
 local ddtrace_conf
@@ -193,12 +194,21 @@ local function configure(conf)
         environment = get_env("DD_ENV") or conf.environment,
         version = get_env("DD_VERSION") or conf.version,
         agent_url = get_env("DD_TRACE_AGENT_URL") or conf.trace_agent_url or agent_url,
+        injection_propagation_styles = get_env("DD_TRACE_PROPAGATION_STYLE_INJECT")
+            or conf.injection_propagation_styles,
+        extraction_propagation_styles = get_env("DD_TRACE_PROPAGATION_STYLE_EXTRACT")
+            or conf.extraction_propagation_styles,
     }
 
     kong.log.info("DATADOG TRACER CONFIGURATION - " .. utils.dump(ddtrace_conf))
 
     agent_writer_timer = ngx.timer.every(2.0, flush_agent_writers)
     sampler = new_sampler(math.ceil(conf.initial_samples_per_second / ngx_worker_count), conf.initial_sample_rate)
+    propagator = new_propagator(
+        ddtrace_conf.extraction_propagation_styles,
+        ddtrace_conf.injection_propagation_styles,
+        conf.max_header_size
+    )
 
     if conf and conf.header_tags then
         header_tags = utils.normalize_header_tags(conf.header_tags)
@@ -227,7 +237,7 @@ if subsystem == "http" then
             generate_128bit_trace_ids = conf.generate_128bit_trace_ids,
         }
 
-        local request_span = propagator.extract_or_create_span(req, span_options, conf.max_header_size)
+        local request_span = propagator:extract_or_create_span(req, span_options)
 
         -- Set datadog tags
         if ddtrace_conf.environment then
@@ -333,7 +343,12 @@ if subsystem == "http" then
         local access_start = ngx_ctx.KONG_ACCESS_START and ngx_ctx.KONG_ACCESS_START * 1000 or ngx_now_mu()
         local proxy_span = get_or_add_proxy_span(datadog, access_start * 1000LL)
 
-        local err = propagator.inject(proxy_span, kong.service.request.set_header, conf.max_header_size)
+        local request = {
+            get_header = kong.request.get_header,
+            set_header = kong.service.request.set_header,
+        }
+
+        local err = propagator:inject(request, proxy_span)
         if err then
             kong.log.error("Failed to inject trace (id: " .. proxy_span.trace_id .. "). Reason: " .. err)
         end

@@ -97,6 +97,25 @@ The version is a user-defined value for tracking a application version, or a ver
 
 The value set through the environment variable `DD_VERSION` overrides any other specified value, including the default setting.
 
+### Propagation Styles
+
+Specify propagation styles for extracting or injecting tracing headers
+
+To configure injection styles, set the `injection_propagation_styles` field:
+```sh
+--data 'config.injection_propagation_styles[1]=datadog'
+```
+
+To configure extraction styles, use the `extraction_propagation_styles` field:
+```sh
+--data 'config.extraction_propagation_styles[1]=datadog' \
+--data 'config.extraction_propagation_styles[2]=tracecontext'
+```
+
+Accepted values are either `datadog` or `tracecontext`.
+
+Values set with `DD_TRACE_PROPAGATION_STYLE_INJECT` or `DD_TRACE_PROPAGATION_STYLE_EXTRACT` override any other specified values.
+
 ### Sampling Controls
 
 Sampling of traces is required in environments with high traffic load to reduce the amount of trace data produced and ingested by Datadog.
