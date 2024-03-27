@@ -11,12 +11,14 @@ local function make_getter(headers)
     return getter
 end
 
+local unused_max_header_size = 255
+
 describe("extract w3c", function()
     it("no w3c headers", function()
         local get_header = make_getter({})
         local extracted, err = extract_w3c(get_header, get_header)
+        assert.is_nil(err)
         assert.is_nil(extracted)
-        assert.is_not_nil(err)
     end)
 
     describe("traceparent", function()
@@ -46,7 +48,7 @@ describe("extract w3c", function()
                 traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
             })
 
-            local extracted, err = extract_w3c(get_header, _)
+            local extracted, err = extract_w3c(get_header, unused_max_header_size)
             assert.is_nil(err)
 
             local expected = {
@@ -65,7 +67,7 @@ describe("extract w3c", function()
                 traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
                 tracestate = "fizz=buzz:fizzbuzz,dd=s:2;o:rum;p:00f067aa0ba902b7;t.dm:-5",
             })
-            local extracted, err = extract_w3c(get_header, _)
+            local extracted, err = extract_w3c(get_header, unused_max_header_size)
             assert.is_nil(err)
 
             local expected = {
@@ -84,7 +86,7 @@ describe("extract w3c", function()
                         traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
                         tracestate = "bar=over:dd,dd=s:2",
                     })
-                    local extracted, err = extract_w3c(get_header, _)
+                    local extracted, err = extract_w3c(get_header, unused_max_header_size)
                     assert.is_nil(err)
 
                     local expected = {
@@ -100,7 +102,7 @@ describe("extract w3c", function()
                         traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
                         tracestate = "bar=over:dd",
                     })
-                    local extracted, err = extract_w3c(get_header, _)
+                    local extracted, err = extract_w3c(get_header, unused_max_header_size)
                     assert.is_nil(err)
 
                     local expected = {
@@ -116,7 +118,7 @@ describe("extract w3c", function()
                         traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
                         tracestate = "dd=s:-5;bar=over:dd",
                     })
-                    local extracted, err = extract_w3c(get_header, _)
+                    local extracted, err = extract_w3c(get_header, unused_max_header_size)
                     assert.is_nil(err)
 
                     local expected = {
@@ -134,7 +136,7 @@ describe("extract w3c", function()
                         traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
                         tracestate = "bar=over:dd,dd=s:3",
                     })
-                    local extracted, err = extract_w3c(get_header, _)
+                    local extracted, err = extract_w3c(get_header, unused_max_header_size)
                     assert.is_nil(err)
 
                     local expected = {
@@ -150,7 +152,7 @@ describe("extract w3c", function()
                         traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
                         tracestate = "dd=foo:bar,vendor=cake:lie",
                     })
-                    local extracted, err = extract_w3c(get_header, _)
+                    local extracted, err = extract_w3c(get_header, unused_max_header_size)
                     assert.is_nil(err)
 
                     local expected = {
@@ -166,7 +168,7 @@ describe("extract w3c", function()
                         traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
                         tracestate = "dd=s:-2;foo:bar,vendor=cake:lie",
                     })
-                    local extracted, err = extract_w3c(get_header, _)
+                    local extracted, err = extract_w3c(get_header, unused_max_header_size)
                     assert.is_nil(err)
 
                     local expected = {
@@ -256,8 +258,9 @@ describe("w3c propagation round trip", function()
             end,
         }
 
-        local extracted, err = extract_w3c(request.get_header, _)
+        local extracted, err = extract_w3c(request.get_header, unused_max_header_size)
         assert.is_not_nil(extracted)
+        assert.is_nil(err)
 
         local start_us = 1711027573 * 100000000LL
         local span = new_span(
@@ -297,7 +300,8 @@ describe("w3c propagation round trip", function()
             end,
         }
 
-        local extracted, err = extract_w3c(request.get_header, _)
+        local extracted, err = extract_w3c(request.get_header, unused_max_header_size)
+        assert.is_nil(err)
         assert.is_not_nil(extracted)
 
         local start_us = 1711027573 * 100000000LL
@@ -337,7 +341,8 @@ describe("w3c propagation round trip", function()
             end,
         }
 
-        local extracted, err = extract_w3c(request.get_header, _)
+        local extracted, err = extract_w3c(request.get_header, unused_max_header_size)
+        assert.is_nil(err)
         assert.is_not_nil(extracted)
 
         local start_us = 1711027573 * 100000000LL

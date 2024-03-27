@@ -367,7 +367,7 @@ describe("trace propagation", function()
             end,
         }
 
-        local extracted, err = extract_datadog(request.get_header, 512)
+        local extracted, _ = extract_datadog(request.get_header, 512)
         assert.is_not_nil(extracted)
 
         local start_us = 1711027189 * 100000000LL

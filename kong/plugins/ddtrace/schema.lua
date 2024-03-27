@@ -93,9 +93,10 @@ local function validate_propagation_style(styles)
     }
 
     for i = 1, #styles do
-        local found = allowed_styles[styles[i]]
+        local style = styles[i]
+        local found = allowed_styles[style]
         if not found then
-            return nil, "unexpected style"
+            return nil, string.format('unexpected style "%s". Only datadog, tracecontext styles are supported', style)
         end
     end
 

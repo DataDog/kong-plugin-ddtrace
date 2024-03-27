@@ -99,7 +99,21 @@ The value set through the environment variable `DD_VERSION` overrides any other 
 
 ### Propagation Styles
 
-TBD
+Specify propagation styles for extracting or injecting tracing headers
+
+To configure injection styles, set the `injection_propagation_styles` field:
+`--data 'config.injection_propagation_styles[1]=datadog'`
+
+
+To configure extraction styles, use the `extraction_propagation_styles` field:
+```sh
+--data 'config.extraction_propagation_styles[1]=datadog' \
+--data 'config.extraction_propagation_styles[2]=tracecontext'
+```
+
+Accepted values are either `datadog` or `tracecontext`.
+
+Values set with `DD_TRACE_PROPAGATION_STYLE_INJECT` or `DD_TRACE_PROPAGATION_STYLE_EXTRACT` override any other specified values.
 
 ### Sampling Controls
 
@@ -178,10 +192,6 @@ When configuring a Kong plugin using `curl`, the `--data` values should be wrapp
 
 Additional details about regular expressions can be found in OpenResty documentation for [ngx.re.match](https://github.com/openresty/lua-nginx-module#ngxrematch) and [ngx.re.sub
 ](https://github.com/openresty/lua-nginx-module#ngxresub) which are used to apply the resource name rules.
-
-### Propagation Style
-
-TBD
 
 ## Testing
 

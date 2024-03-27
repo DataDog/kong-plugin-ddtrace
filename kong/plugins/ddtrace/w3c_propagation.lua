@@ -3,7 +3,6 @@ local join_table = require("kong.plugins.ddtrace.utils").join_table
 local band = bit.band
 local btohex = bit.tohex
 local re_match = ngx.re.match
--- local re_gmatch = ngx.re.gmatch
 
 local traceparent_format = "([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})"
 
@@ -22,16 +21,6 @@ local function parse_datadog_tracestate(tracestate)
         return result, nil
     end
 
-    -- local m, err = re_match(dd_state, "([a-z0-9]+):([a-z0-9]+)", "ijo")
-    -- local it, err = re_gmatch(dd_state, "([a-z0-9]+):([a-z0-9]+)", "ijo")
-    -- if not it then
-    --     return nil
-    -- end
-    --
-    -- while true do
-    --     local m, err = it()
-    --     local k = m[1]
-    --     local v = m[2]
     for k, v in string.gmatch(dd_state, "([%w-._]+):([%w-._]+)") do
         if k == "s" then
             local sampling, err = tonumber(v)
@@ -44,9 +33,9 @@ local function parse_datadog_tracestate(tracestate)
         elseif k == "p" then
             result["parent_id"] = v
         elseif k == "t.dm" then
-            local m, err = re_match(v, "-[0-9]+", "ajo")
+            local m, _ = re_match(v, "-[0-9]+", "ajo")
             if not m then
-                return result, err
+                return result, "extracted t.dm is improperly formatted"
             end
 
             result["_dd.p.dm"] = v
@@ -59,11 +48,11 @@ end
 local function extract(get_header, _)
     local traceparent = get_header("traceparent")
     if not traceparent then
-        return nil, "not traceparent header found"
+        return nil, nil
     end
 
     if not startswith(traceparent, "00") or #traceparent < 55 then
-        return nil, "could not decode traceparent"
+        return nil, "unsupported traceparent version"
     end
 
     -- NOTE:
@@ -77,30 +66,32 @@ local function extract(get_header, _)
 
     local hex_trace_id, parent_id, trace_flags = table.unpack(m, 2) -- luacheck: ignore 143
     if hex_trace_id == 0 then
-        return nil, "invalid trace_id"
+        return nil, "0 is invalid trace ID"
     end
     if parent_id == 0 then
-        return nil, "invalid parent_id"
+        return nil, "0 is an invalid parent ID"
     end
 
     local trace_id = { high = 0, low = 0 }
+
     trace_id.high, err = parse_uint64(string.sub(hex_trace_id, 1, 16), 16)
     if err then
-        return nil, "could not parse trace_id: " .. err
+        return nil, "failed to parse trace ID: " .. err
     end
+
     trace_id.low, err = parse_uint64(string.sub(hex_trace_id, 17, 32), 16)
     if err then
-        return nil, "could not parse trace_id: " .. err
+        return nil, "failed to parse trace ID: " .. err
     end
 
     parent_id, err = parse_uint64(parent_id, 16)
     if err then
-        return nil, "could not parse parent_id: " .. err
+        return nil, "failed to parse parent ID: " .. err
     end
 
     trace_flags, err = parse_uint64(trace_flags, 16)
     if err then
-        return nil, "could not parse trace_flags: " .. err
+        return nil, "could not parse trace flags: " .. err
     end
 
     -- tracestate

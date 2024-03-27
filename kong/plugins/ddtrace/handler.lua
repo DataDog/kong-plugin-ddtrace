@@ -204,7 +204,11 @@ local function configure(conf)
 
     agent_writer_timer = ngx.timer.every(2.0, flush_agent_writers)
     sampler = new_sampler(math.ceil(conf.initial_samples_per_second / ngx_worker_count), conf.initial_sample_rate)
-    propagator = new_propagator(ddtrace_conf.injection_propagation_styles, ddtrace_conf.extraction_propagation_styles)
+    propagator = new_propagator(
+        ddtrace_conf.extraction_propagation_styles,
+        ddtrace_conf.injection_propagation_styles,
+        conf.max_header_size
+    )
 
     if conf and conf.header_tags then
         header_tags = utils.normalize_header_tags(conf.header_tags)
@@ -233,7 +237,7 @@ if subsystem == "http" then
             generate_128bit_trace_ids = conf.generate_128bit_trace_ids,
         }
 
-        local request_span = propagator:extract_or_create_span(req, span_options, conf.max_header_size)
+        local request_span = propagator:extract_or_create_span(req, span_options)
 
         -- Set datadog tags
         if ddtrace_conf.environment then
@@ -344,7 +348,7 @@ if subsystem == "http" then
             set_header = kong.service.request.set_header,
         }
 
-        local err = propagator:inject(request, proxy_span, conf.max_header_size)
+        local err = propagator:inject(request, proxy_span)
         if err then
             kong.log.error("Failed to inject trace (id: " .. proxy_span.trace_id .. "). Reason: " .. err)
         end
