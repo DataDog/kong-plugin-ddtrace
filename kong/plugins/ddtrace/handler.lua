@@ -255,6 +255,30 @@ if subsystem == "http" then
         -- Add metrics
         request_span.metrics["_dd.top_level"] = 1
 
+        -- Set standard tags
+        request_span:set_tag("component", "kong")
+        request_span:set_tag("span.kind", "server")
+
+        local url = req.get_scheme() .. "://" .. req.get_host() .. ":" .. req.get_port() .. path
+        request_span:set_tag("http.method", method)
+        request_span:set_tag("http.url", url)
+        request_span:set_tag("http.client_ip", kong.client.get_forwarded_ip())
+
+        local req_content_length = req.get_header("content-length")
+        if req_content_length then
+            request_span:set_tag("http.request.content_length", req_content_length)
+        end
+
+        local useragent = req.get_header("user-agent")
+        if useragent then
+            request_span:set_tag("http.useragent", useragent)
+        end
+
+        local http_version = req.get_http_version()
+        if http_version then
+            request_span:set_tag("http.version", http_version)
+        end
+
         -- Set nginx informational tags
         request_span:set_tag("nginx.version", ngx.config.nginx_version)
         request_span:set_tag("nginx.lua_version", ngx.config.ngx_lua_version)
@@ -271,20 +295,6 @@ if subsystem == "http" then
             request_span:set_tag("kong.role", kong.configuration.role)
             request_span:set_tag("kong.nginx_daemon", kong.configuration.nginx_daemon)
             request_span:set_tag("kong.database", kong.configuration.database)
-        end
-
-        local http_version = req.get_http_version()
-        local protocol = http_version and "HTTP/" .. http_version or nil
-
-        request_span.ip = kong.client.get_forwarded_ip()
-        request_span.port = kong.client.get_forwarded_port()
-
-        request_span:set_tag("lc", "kong")
-        request_span:set_tag("http.method", method)
-        request_span:set_tag("http.host", req.get_host())
-        request_span:set_tag("http.path", path)
-        if protocol then
-            request_span:set_tag("http.protocol", protocol)
         end
 
         local static_tags = conf and conf.static_tags or nil
@@ -446,6 +456,7 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
 
     if subsystem == "http" then
         local status_code = kong.response.get_status()
+        -- request_span:set_tag("http.response.content_length", "TBD")
         request_span:set_tag("http.status_code", status_code)
         -- TODO: allow user to define additional status codes that are treated as errors.
         if status_code >= 500 then
