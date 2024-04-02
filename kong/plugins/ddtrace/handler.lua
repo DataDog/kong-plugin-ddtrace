@@ -455,7 +455,9 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
             request_span:set_http_header_tags(header_tags, kong.request.get_header, kong.response.get_header)
         end
     end
-    request_span:set_tag("kong.consumer", ngx_ctx.authenticated_consumer.id)
+    if ngx_ctx.authenticated_consumer then
+        request_span:set_tag("kong.consumer", ngx_ctx.authenticated_consumer.id)
+    end
     if conf and conf.include_credential and ngx_ctx.authenticated_credential then
         request_span:set_tag("kong.credential", ngx_ctx.authenticated_credential.id)
     end
