@@ -43,6 +43,16 @@ describe("extract w3c", function()
             assert.is_not_nil(err)
         end)
 
+        it("bad format", function()
+            local get_header = make_getter({
+                traceparent = "00-ysjbsgwcpqmrahmydynyllupquotexmvzogsvvhfwyxxlmlkbgegekd",
+            })
+
+            local extracted, err = extract_w3c(get_header, get_header)
+            assert.is_nil(extracted)
+            assert.is_not_nil(err)
+        end)
+
         it("valid", function()
             local get_header = make_getter({
                 traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
