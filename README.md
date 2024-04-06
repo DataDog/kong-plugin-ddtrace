@@ -17,182 +17,42 @@ This plugin can be installed using `luarocks`.
 luarocks install kong-plugin-ddtrace
 ```
 
-After kong is started/restarted, the plugin can be enabled. One example:
+## Usage 
+Kong Admin API:
+
 ```bash
 # Enabled globally
-curl -i -X POST --url http://localhost:8001/plugins/ --data 'name=ddtrace'
+curl -i -X POST --url http://${KONG_ADMIN_HOST}>:${KONG_ADMIN_PORT}/plugins/ --data 'name=ddtrace'
+
 # Enabled for specific service only
-curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --data 'name=ddtrace'
+curl -i -X POST --url http://${KONG_ADMIN_HOST}:${KONG_ADMIN_PORT}/services/example-service/plugins/ --data 'name=ddtrace'
 ```
 
-If the datadog agent is not reachable on `http://localhost:8126`, then you will need to configure this as well.
+Kong DB-less:
+````yaml
+# Enable for a specific service
+_format_version: "3.0"
+_transform: true
+
+services:
+- name: example-service
+  url: http://httpbin.org/headers
+  plugins:
+  - name: ddtrace
+    config:
+      service_name: example-service
+      agent_host: datadog-agent
+  routes:
+  - name: my-route
+    paths:
+    - /
+````
 
 ## Configuration
 
-This plugin supports a number of configuration options. These can be supplied when enabling the plugin by providing additional `--data` options to the `curl` request.
-The option is prefixed by `config`, eg: to configure the service name, the `curl` option will be represented as `--data 'config.service_name=your-preferred-name'`.
+This plugin supports a number of configuration options. These can be supplied when registering the plugin or by setting environment variables.
 
-Some options can be set using environment variables or vault references.
-
-### Agent Host
-
-The hostname or IP that will be used to connect to the agent.
-
-`--data 'config.agent_host=your-agent-address'`
-
-The default value is `localhost`.
-
-This value can also be set using the environment variable `DD_AGENT_HOST` and overrides any other specified value, including the default setting.
-
-### Agent Port
-
-The port that will be used to connect to the agent.
-
-`--data 'config.trace_agent_port=your-agent-port'`
-
-The default value is `8126`.
-
-This value can also be set using the environment variable `DD_TRACE_AGENT_PORT` and overrides any other specified value, including the default setting.
-
-### Agent URL
-
-The URL that will be used to connect to the agent. The value should not include the trailing `/` character.
-
-`--data 'config.trace_agent_url=http://localhost:8126'`
-
-The default value is `http://localhost:8126`.
-
-The value set through the environment variable `DD_TRACE_AGENT_URL` overrides any other specified value, including the default setting.
-
-### Agent Endpoint (deprecated)
-
-The full URL for submitting traces to the agent. It is preferred to use `agent_host` or `trace_agent_url` options instead.
-This option will be deprecated in future releases.
-
-`--data config.agent_endpoint=http://localhost:8126/v0.4/traces'`
-
-This value can use vault references. The default value is nil.
-
-### Service Name
-
-The service name represents the application or component that is producing traces. All traces created by this plugin will use the configured service name.
-
-`--data 'config.service_name=your-preferred-name'`
-
-The value set through the environment variable `DD_SERVICE` overrides any other specified value, including the default setting.
-
-### Environment
-
-The environment is a larger grouping of related services, such as `prod`, `staging` or `dev`. By default, generated spans will not have an `environment` tag.
-
-`--data 'config.environment=prod'`
-
-The value set through the environment variable `DD_ENV` overrides any other specified value, including the default setting.
-
-### Version
-
-The version is a user-defined value for tracking a application version, or a versioned combination of applications, configuration, and other assets. By default, generated spans will not have a `version` tag.
-
-`--data 'config.version=1234'`
-
-The value set through the environment variable `DD_VERSION` overrides any other specified value, including the default setting.
-
-### Propagation Styles
-
-Specify propagation styles for extracting or injecting tracing headers
-
-To configure injection styles, set the `injection_propagation_styles` field:
-```sh
---data 'config.injection_propagation_styles[1]=datadog'
-```
-
-To configure extraction styles, use the `extraction_propagation_styles` field:
-```sh
---data 'config.extraction_propagation_styles[1]=datadog' \
---data 'config.extraction_propagation_styles[2]=tracecontext'
-```
-
-Accepted values are either `datadog` or `tracecontext`.
-
-Values set with `DD_TRACE_PROPAGATION_STYLE_INJECT` or `DD_TRACE_PROPAGATION_STYLE_EXTRACT` override any other specified values.
-
-### Sampling Controls
-
-Sampling of traces is required in environments with high traffic load to reduce the amount of trace data produced and ingested by Datadog.
-
-By default, sampling rates are provided by the Datadog agent, and additional controls are available if necessary using configuration of `initial_sample_rate` and `initial_samples_per_second`.
-
-The `initial_sample_rate` can be set to a value between 0.0 (0%) and 1.0 (100%), and this is limited by the setting for `initial_samples_per_second` (default: 100).
-After that amount of sampled traces has been exceeded, traces will not be sampled.
-
-For example with `initial_sample_rate=0.1`, `initial_samples_per_second=5` and a traffic rate of 100 RPS:
-- The first 40-50 requests per second will be sampled at 10% until 5 traces have been sampled
-- The remaining 50-60 requests for that second will not be sampled.
-
-`-- data 'config.initial_samples_per_second=100' --data 'config.initial_sample_rate=1.0'`
-
-### Resource Name Rules
-
-The resource name represents a common access method and resource being used by a service. For Kong, this is typically the HTTP request method, and part of the URI.
-
-By default, the full URI will be used. This can lead to a high number of unique values (cardinality), or exposing IDs and tokens contained in the URI.
-To avoid this, resource name rules are used to match path of the URI, and replace the resource name with either the matched part or a user-configured replacement value.
-
-The required `match` field is a regular expression, implicitly anchored to the beginning of the URI value.
-
-The optional `replacement` field is used to provide an updated value for the resource name.
-
-`--data 'config.resource_name_rule[1].match=/api/v1/users'`
-
-`--data 'config.resource_name_rule[2].match=/api/v1/features/xyz/enabled' --data 'config.resource_name_rule[2].replacement=/api/v1/features/?/enabled'`
-
-The first matching rule in a list of rules is used, and any remaining rules are ignored.
-So if a rule matching `/api` exists before a more-specific match like `/api/v1/users`, the `/api` rule will be used.
-
-Example setup:
-```
---data 'config.resource_name_rule[1].match=/api/v1/users'
---data 'config.resource_name_rule[2].match=/api/v1/features/\w*/enabled' --data 'config.resource_name_rule[2].replacement=/api/v1/features/?/enabled'
---data 'config.resource_name_rule[3].match=/reset_password/' --data 'config.resource_name_rule[3].replacement=PASSWORD_RESET'
---data 'config.resource_name_rule[4].match=/([^/]*)/' --data 'config.resource_name_rule[4].replacement=/$1/?
-```
-
-Example outcomes:
-| HTTP Method | Request URI | Matches Rule | Final Resource Name |
-| ----------- | ----------- | ------------ | ------------------- |
-| GET | /api/v1/users/1234/profile | 1 | GET /api/v1/users |
-| GET | /api/v1/features/abc/enabled | 2 | GET /api/v1/features/?/enabled |
-| GET | /api/v1/features/xyz/enabled | 2 | GET /api/v1/features/?/enabled |
-| POST | /reset_password/D6T6wVRw | 3 | POST PASSWORD_RESET |
-| GET | /static/site.js | 4 | GET /static/? |
-| GET | /favicon.ico | none | GET /favicon.ico |
-
-
-### Tag root span with HTTP Headers (DD_TRACE_HEADER_TAGS)
-
-For security reasons, only a subset of HTTP headers are reported as tags. It is possible to configure the plugin to report specific HTTP Headers as span tags.
-Nonetheless, be careful on which headers you are deciding to add as a span tag.
-
-Learn more about [HTTP header collection](https://docs.datadoghq.com/tracing/configure_data_security/?tab=net#collect-headers)
-
-Example setup:
-
-````sh
-# curl
---data 'config.header_tags[1].header=Ratelimit-Limit' --data 'config.header_tags[1].tag=rate-limit'
-
-# The tag can be omitted, a tag following this format will be used: `http.<request|response>.headers.<http-header-name>`
---data 'config.header_tags[1].header=Ratelimit-Limit'
-````
-
-**NOTES**
-
-A plus (+) symbol in regular expressions is often used to match "one-or-more", but when configurig this in a resource name rule, it should be encoded. This is because it overlaps with URL encoding. Without encoding it, the URL encoding performed by curl or Kong will replace a plus with a space character. `%2B` should be used instead of the `+` character to avoid this issue.
-
-When configuring a Kong plugin using `curl`, the `--data` values should be wrapped in single-quotes to avoid expansion of special characters by the shell.
-
-Additional details about regular expressions can be found in OpenResty documentation for [ngx.re.match](https://github.com/openresty/lua-nginx-module#ngxrematch) and [ngx.re.sub
-](https://github.com/openresty/lua-nginx-module#ngxresub) which are used to apply the resource name rules.
+More details on the [Configuration page](doc/configuration.md).
 
 ## Testing
 
@@ -214,7 +74,6 @@ Inside the shell:
 ```bash
 # This migration step is only required the first time after running `pongo up`
 kong migrations bootstrap
-
 
 export KONG_PLUGINS=bundled,ddtrace
 kong start
@@ -249,4 +108,3 @@ This plugin is based on the original Zipkin plugin developed and maintained by K
 The pongo tool was especially helpful in the development of this plugin. It is easy to use, very featureful and is clearly written "by developers, for developers".
 
 For encoding datadog trace information in MessagePack, the Lua module from François Perrad (https://framagit.org/fperrad) was used as the base. Modifications were made to support encoding `uint64_t` and `int64_t` values.
-
