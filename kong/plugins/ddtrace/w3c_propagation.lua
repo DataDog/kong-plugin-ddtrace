@@ -101,7 +101,7 @@ local function extract(get_header, _)
     if tracestate then
         dd_state, err = parse_datadog_tracestate(tracestate)
         if err then
-            kong.log.warning(err)
+            kong.log.warn(err)
         end
     end
 
