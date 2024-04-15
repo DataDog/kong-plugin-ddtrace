@@ -25,7 +25,7 @@ local function parse_datadog_tracestate(tracestate)
         if k == "s" then
             local sampling, err = tonumber(v)
             if err then
-                return result, err
+                return result, 'datadog sampling "' .. v .. '" is improperly formatted (' .. err .. ")"
             end
             result["sampling_priority"] = sampling
         elseif k == "o" then
@@ -33,9 +33,14 @@ local function parse_datadog_tracestate(tracestate)
         elseif k == "p" then
             result["parent_id"] = v
         elseif k == "t.dm" then
-            local m, _ = re_match(v, "-[0-9]+", "ajo")
+            local m, err = re_match(v, "-[0-9]+", "ajo")
             if not m then
-                return result, "extracted t.dm is improperly formatted"
+                local err_msg = 't.dm "' .. v .. '" is improperly formatted'
+                if err then
+                    err_msg = err_msg .. "(" .. err .. ")"
+                end
+
+                return result, err_msg
             end
 
             result["_dd.p.dm"] = v
@@ -60,8 +65,12 @@ local function extract(get_header, _)
     --   * parentid is 8-byte hex-encoded (64b)
     --   * trace_flags is 8-byte hex-encoded and bit-field
     local m, err = re_match(traceparent, traceparent_format, "ajo")
-    if err then
-        return nil, err
+    if not m then
+        local err_msg = 'failed to parse traceparent "' .. traceparent .. '"'
+        if err then
+            return nil, err_msg .. "(" .. err .. ")"
+        end
+        return nil, err_msg
     end
 
     local hex_trace_id, parent_id, trace_flags = table.unpack(m, 2) -- luacheck: ignore 143
@@ -101,7 +110,7 @@ local function extract(get_header, _)
     if tracestate then
         dd_state, err = parse_datadog_tracestate(tracestate)
         if err then
-            kong.log.warn(err)
+            kong.log.warn("failed to extract datadog tracestate: " .. err)
         end
     end
 
