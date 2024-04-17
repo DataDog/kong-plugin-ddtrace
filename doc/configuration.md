@@ -16,7 +16,7 @@ Configuration can be set either through the plugin configuration field or enviro
 | Name | Environment Variable | Description | Since | Type | Default |
 | ---- | -------------------- | ----------- | ----- | ---- | ------- |
 | `agent_host` | `DD_AGENT_HOST` | Hostname or IP to reach the Datadog Agent | `v0.2.0` | `string` | `localhost` |
-| `trace_agent_port` | `DD_TRACE_AGENT_PORT` | Port to reach the Datadog Agent | `v0.2.0` | `number` | `8126` | 
+| `trace_agent_port` | `DD_TRACE_AGENT_PORT` | Port to reach the Datadog Agent | `v0.2.0` | `number` | `8126` |
 | `trace_agent_url` | `DD_TRACE_AGENT_URL` | URL used to reach the Datadog Agent | `v0.2.0` | `string` | `http://localhost:8126` |
 | `service_name` | `DD_SERVICE` | Name of the service that is producing traces | `v0.0.1` | `string` | Service registered by Kong or `kong` |
 | `environment` | `DD_ENV` | Add `env` tag for [Unified Service Tagging](https://docs-staging.datadoghq.com/dmehala/cpp-updates/getting_started/tagging/unified_service_tagging/?tab=kubernetes)  | `v0.0.1` | `string` | `nil` |
@@ -26,7 +26,7 @@ Configuration can be set either through the plugin configuration field or enviro
 | `extraction_propagation_styles` | `DD_TRACE_PROPAGATION_STYLE_EXTRACT` | Propagation style used for extracting trace context. Values are limited to `datadog` and `tracecontext`.  | `v0.2.0` | `array[str]` | `{ "datadog", "tracecontext"}` |
 | `initial_sample_rate` | | Set the sampling rate for all generated traces. The value must be between `0.0` and `1.0` (inclusive) | `v0.0.1` | `float` | `1.0` |
 | `intial_samples_per_second` | | Maximum number of traces allowed to be submitted per second | `v0.0.1` | `number` | `100` |
-| `resource_name_rule` | | Replace matching resources to lower the cardinality on resource names | `v0.0.1` | `array[rule] with rule = {match=str, replacement=str}]` | `nil` | 
+| `resource_name_rule` | | Replace matching resources to lower the cardinality on resource names | `v0.0.1` | `array[rule] with rule = {match=str, replacement=str}]` | `nil` |
 | `header_tags` |  | Set HTTP Headers as root tags | `v0.2.0` | `array[header_tag] with header_tag = {header=str, tag=str}]` | `nil` |
 
 ## Sampling Controls
@@ -80,7 +80,7 @@ Example outcomes:
 | GET | /static/site.js | 4 | GET /static/? |
 | GET | /favicon.ico | none | GET /favicon.ico |
 
-> [!NOTE]  
+> [!NOTE]
 > A plus (+) symbol in regular expressions is often used to match "one-or-more", but when configurig this in a resource name rule, it should be encoded. This is because it overlaps with URL encoding. Without encoding it, the URL encoding performed by curl or Kong will replace a plus with a space character. `%2B` should be used instead of the `+` character to avoid this issue.
 >
 > When configuring a Kong plugin using `curl`, the `--data` values should be wrapped in single-quotes to avoid expansion of special characters by the shell.
@@ -103,3 +103,82 @@ Example setup:
 # The tag can be omitted, a tag following this format will be used: `http.<request|response>.headers.<http-header-name>`
 --data 'config.header_tags[1].header=Ratelimit-Limit'
 ````
+
+## Configuration Examples
+
+### Using Kong Admin API with cURL
+
+```bash
+curl -i -X POST --url http://${KONG_ADMIN_HOST}:${KONG_ADMIN_PORT}/plugins/ \
+     -H "content-type: application/json" \
+     -d '{
+        "name": "ddtrace",
+        "config": {
+          "agent_host": "datadog-agent",
+          "service_name": "example-service",
+          "environment": "dev",
+          "version": "0.2.0",
+          "static_tags": [
+            {
+                "name": "foo",
+                "value": "bar"
+            },
+            {
+                "name": "team",
+                "value": "api"
+            }
+          ],
+          "injection_propagation_styles": ["datadog", "tracecontext"],
+          "extraction_propagation_styles": ["datadog", "tracecontext"],
+          "initial_sample_rate": 1.0,
+          "initial_samples_per_second": 200,
+          "resource_name_rule": [
+            {
+                "match": "/api/v1/features/\\w*/enabled",
+                "replacement": "/api/v1/features/?/enabled"
+            }
+          ],
+          "header_tags": [
+            {
+                "header": "X-Gateway",
+                "tag": "gateway-name"
+            }
+          ]
+        }
+    }'
+```
+
+### Using Kong DB-less
+
+```yaml
+# Enable for a specific service
+_format_version: "3.0"
+_transform: true
+
+plugins:
+- name: ddtrace
+  config:
+    agent_host: datadog-agent
+    service_name: example-service
+    environment: dev
+    version: 0.2.0
+    static_tags:
+      - name: foo
+        value: bar
+      - name: team
+        value: api
+    injection_propagation_styles:
+      - datadog
+      - tracecontext
+    extraction_propagation_styles:
+      - datadog
+      - tracecontext
+    initial_sample_rate: 1.0
+    initial_samples_per_second: 200
+    resource_name_rule:
+      - match: /api/v1/features/\w*/enabled
+        replacement: /api/v1/features/?/enabled
+    header_tags:
+      - header: X-Gateway
+        tag: gateway-name
+```
