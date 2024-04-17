@@ -17,12 +17,12 @@ This plugin can be installed using `luarocks`.
 luarocks install kong-plugin-ddtrace
 ```
 
-## Usage 
+## Usage
 Kong Admin API:
 
 ```bash
 # Enabled globally
-curl -i -X POST --url http://${KONG_ADMIN_HOST}>:${KONG_ADMIN_PORT}/plugins/ --data 'name=ddtrace'
+curl -i -X POST --url http://${KONG_ADMIN_HOST}:${KONG_ADMIN_PORT}/plugins/ --data 'name=ddtrace'
 
 # Enabled for specific service only
 curl -i -X POST --url http://${KONG_ADMIN_HOST}:${KONG_ADMIN_PORT}/services/example-service/plugins/ --data 'name=ddtrace'
