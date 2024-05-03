@@ -194,10 +194,8 @@ local function configure(conf)
         environment = get_env("DD_ENV") or conf.environment,
         version = get_env("DD_VERSION") or conf.version,
         agent_url = get_env("DD_TRACE_AGENT_URL") or conf.trace_agent_url or agent_url,
-        injection_propagation_styles = get_env("DD_TRACE_PROPAGATION_STYLE_INJECT")
-            or conf.injection_propagation_styles,
-        extraction_propagation_styles = get_env("DD_TRACE_PROPAGATION_STYLE_EXTRACT")
-            or conf.extraction_propagation_styles,
+        injection_propagation_styles = conf.injection_propagation_styles,
+        extraction_propagation_styles = conf.extraction_propagation_styles,
     }
 
     kong.log.info("DATADOG TRACER CONFIGURATION - " .. utils.dump(ddtrace_conf))
