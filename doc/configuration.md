@@ -22,8 +22,8 @@ Configuration can be set either through the plugin configuration field or enviro
 | `environment` | `DD_ENV` | Add `env` tag for [Unified Service Tagging](https://docs-staging.datadoghq.com/dmehala/cpp-updates/getting_started/tagging/unified_service_tagging/?tab=kubernetes)  | `v0.0.1` | `string` | `nil` |
 | `version` | `DD_VERSION` | Sets the version of the service and add `version` tag for [Unified Service Tagging](https://docs-staging.datadoghq.com/dmehala/cpp-updates/getting_started/tagging/unified_service_tagging/?tab=kubernetes) | `v0.2.0` | `string` | `nil` |
 | `static_tags` |  | List of tags to be added to root spans | `v0.0.1` | `array[tag] with tag = {name=str, value=str}]` | `nil` |
-| `injection_propagation_styles` | `DD_TRACE_PROPAGATION_STYLE_INJECT` | Propagation style used for injecting trace context | `v0.2.0` | `array[str]` | `{ "datadog", "tracecontext"}` |
-| `extraction_propagation_styles` | `DD_TRACE_PROPAGATION_STYLE_EXTRACT` | Propagation style used for extracting trace context. Values are limited to `datadog` and `tracecontext`.  | `v0.2.0` | `array[str]` | `{ "datadog", "tracecontext"}` |
+| `injection_propagation_styles` |  | Propagation style used for injecting trace context | `v0.2.0` | `array[str]` | `{ "datadog", "tracecontext"}` |
+| `extraction_propagation_styles` |  | Propagation style used for extracting trace context. Values are limited to `datadog` and `tracecontext`.  | `v0.2.0` | `array[str]` | `{ "datadog", "tracecontext"}` |
 | `initial_sample_rate` | | Set the sampling rate for all generated traces. The value must be between `0.0` and `1.0` (inclusive) | `v0.0.1` | `float` | `1.0` |
 | `intial_samples_per_second` | | Maximum number of traces allowed to be submitted per second | `v0.0.1` | `number` | `100` |
 | `resource_name_rule` | | Replace matching resources to lower the cardinality on resource names | `v0.0.1` | `array[rule] with rule = {match=str, replacement=str}]` | `nil` |
