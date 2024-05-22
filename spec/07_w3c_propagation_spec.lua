@@ -72,6 +72,23 @@ describe("extract w3c", function()
     end)
 
     describe("tracestate", function()
+        describe("datadog p field is propagated even if not valid", function()
+            local get_header = make_getter({
+                traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+                tracestate = "fizz=buzz:fizzbuzz,dd=s:2;o:rum;p:xXDoOxG;t.dm:-5",
+            })
+            local extracted, err = extract_w3c(get_header, unused_max_header_size)
+            assert.is_nil(err)
+
+            local expected = {
+                trace_id = { high = 0x4bf92f3577b34da6ULL, low = 0xa3ce929d0e0e4736ULL },
+                parent_id = 0x00f067aa0ba902b7ULL,
+                origin = "rum",
+                tags = { ["_dd.p.dm"] = "-5", ["_dd.parent_id"] = "xXDoOxG" },
+                sampling_priority = 2,
+            }
+            assert.same(expected, extracted)
+        end)
         describe("extract valid datadog state", function()
             local get_header = make_getter({
                 traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
@@ -84,7 +101,7 @@ describe("extract w3c", function()
                 trace_id = { high = 0x4bf92f3577b34da6ULL, low = 0xa3ce929d0e0e4736ULL },
                 parent_id = 0x00f067aa0ba902b7ULL,
                 origin = "rum",
-                tags = { ["_dd.p.dm"] = "-5" },
+                tags = { ["_dd.p.dm"] = "-5", ["_dd.parent_id"] = "00f067aa0ba902b7" },
                 sampling_priority = 2,
             }
             assert.same(expected, extracted)
@@ -224,9 +241,10 @@ describe("w3c inject", function()
 
         local expected_traceparent =
             string.format("00-0000000000000000%s-%s-01", bhex(span.trace_id.low), bhex(span.span_id))
+        local expected_tracestate = string.format("dd=p:%s;s:2;o:kong", bhex(span.span_id))
         assert.equal(55, #headers["traceparent"])
         assert.equal(expected_traceparent, headers["traceparent"])
-        assert.equal("dd=s:2;o:kong", headers["tracestate"])
+        assert.equal(expected_tracestate, headers["tracestate"])
     end)
 
     it("128-bit trace ID", function()
@@ -248,7 +266,8 @@ describe("w3c inject", function()
 
         local expected_traceparent =
             string.format("00-%s%s-%s-01", bhex(span.trace_id.high), bhex(span.trace_id.low), bhex(span.span_id))
-        local expected_tracestate = string.format("dd=s:2;o:kong;t.tid:%s", bhex(span.trace_id.high))
+        local expected_tracestate =
+            string.format("dd=p:%s;s:2;o:kong;t.tid:%s", bhex(span.span_id), bhex(span.trace_id.high))
         assert.equal(55, #headers["traceparent"])
         assert.equal(expected_traceparent, headers["traceparent"])
         assert.equal(expected_tracestate, headers["tracestate"])
@@ -261,7 +280,7 @@ describe("w3c propagation round trip", function()
         local request = {
             get_header = make_getter({
                 traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-                tracestate = "dd=s:2;o:rum;t.tid:4bf92f3577b34da6",
+                tracestate = "dd=s:2;o:rum;p:2e4b3eb1ac589a8f;t.tid:4bf92f3577b34da6",
             }),
             set_header = function(key, value)
                 out_headers[key] = value
@@ -292,7 +311,7 @@ describe("w3c propagation round trip", function()
         inject_w3c(span, request, 512)
 
         local expected_traceparent = string.format("00-4bf92f3577b34da6a3ce929d0e0e4736-%s-01", bhex(span.span_id))
-        local expected_tracestate = "dd=s:2;o:rum;t.tid:4bf92f3577b34da6"
+        local expected_tracestate = string.format("dd=p:%s;s:2;o:rum;t.tid:4bf92f3577b34da6", bhex(span.span_id))
 
         assert.equal(expected_traceparent, out_headers["traceparent"])
         assert.equal(expected_tracestate, out_headers["tracestate"])
@@ -334,7 +353,10 @@ describe("w3c propagation round trip", function()
         inject_w3c(span, request, 512)
 
         local expected_traceparent = string.format("00-4bf92f3577b34da6a3ce929d0e0e4736-%s-01", bhex(span.span_id))
-        local expected_tracestate = "dd=s:2;o:rum;t.tid:4bf92f3577b34da6,vendor=k1:v1;k2:v2,vendor2=k1:v1;k2:v2"
+        local expected_tracestate = string.format(
+            "dd=p:%s;s:2;o:rum;t.tid:4bf92f3577b34da6,vendor=k1:v1;k2:v2,vendor2=k1:v1;k2:v2",
+            bhex(span.span_id)
+        )
         assert.equal(expected_traceparent, out_headers["traceparent"])
         assert.equal(expected_tracestate, out_headers["tracestate"])
     end)
@@ -375,7 +397,8 @@ describe("w3c propagation round trip", function()
         inject_w3c(span, request, 512)
 
         local expected_traceparent = string.format("00-4bf92f3577b34da6a3ce929d0e0e4736-%s-01", bhex(span.span_id))
-        local expected_tracestate = "dd=s:2;o:rum;t.tid:4bf92f3577b34da6,vendor=k1:v1;k2:v2"
+        local expected_tracestate =
+            string.format("dd=p:%s;s:2;o:rum;t.tid:4bf92f3577b34da6,vendor=k1:v1;k2:v2", bhex(span.span_id))
         assert.equal(expected_traceparent, out_headers["traceparent"])
         assert.equal(expected_tracestate, out_headers["tracestate"])
     end)
