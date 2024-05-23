@@ -31,7 +31,7 @@ local function parse_datadog_tracestate(tracestate)
         elseif k == "o" then
             result["origin"] = v
         elseif k == "p" then
-            result["parent_id"] = v
+            result["_dd.parent_id"] = v
         elseif k == "t.dm" then
             local m, err = re_match(v, "-[0-9]+", "ajo")
             if not m then
@@ -115,6 +115,7 @@ local function extract(get_header, _)
     end
 
     dd_tags["_dd.p.dm"] = dd_state["_dd.p.dm"]
+    dd_tags["_dd.parent_id"] = dd_state["_dd.parent_id"]
 
     local sampling_priority = 0 -- luacheck: ignore 311
     local is_sampled = band(trace_flags, 0x01) > 0
@@ -156,7 +157,7 @@ local function inject(span, request, _)
         trace_flags = "01"
     end
 
-    local states = {}
+    local states = { "p:" .. parent_id }
     if span.sampling_priority then
         table.insert(states, "s:" .. span.sampling_priority)
     end
