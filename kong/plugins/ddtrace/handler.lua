@@ -8,6 +8,7 @@ local subsystem = ngx.config.subsystem
 local fmt = string.format
 local strsub = string.sub
 local regex = ngx.re
+local btohex = bit.tohex
 
 local DatadogTraceHandler = {
     VERSION = "0.2.0",
@@ -82,11 +83,26 @@ local function tag_with_service_and_route(span)
     end
 end
 
+local function expose_tracing_variables(span)
+    -- Expose traceID and parentID for other plugin to consume and also set an NGINX variable
+    -- that can be use for in `log_format` directive for correlation with logs.
+    -- NOTE: kong.ctx has the same lifetime as the current request.
+    local trace_id = btohex(span.trace_id.high or 0, 16) .. btohex(span.trace_id.low, 16)
+    local span_id = btohex(span.span_id, 16)
+
+    kong.ctx.shared.datadog_sdk_trace_id = trace_id
+    kong.ctx.shared.datadog_sdk_span_id = span_id
+    ngx.var.datadog_sdk_trace_id = trace_id
+    ngx.var.datadog_sdk_span_id = span_id
+end
+
 -- adds the proxy span to the datadog context, unless it already exists
 local function get_or_add_proxy_span(datadog, timestamp)
     if not datadog.proxy_span then
         local request_span = datadog.request_span
-        datadog.proxy_span = request_span:new_child("kong.proxy", request_span.resource, timestamp)
+        local proxy_span = request_span:new_child("kong.proxy", request_span.resource, timestamp)
+        datadog.proxy_span = proxy_span
+        expose_tracing_variables(proxy_span)
     end
     return datadog.proxy_span
 end
@@ -290,6 +306,8 @@ if subsystem == "http" then
                 request_span:set_tag(tag.name, tag.value)
             end
         end
+
+        expose_tracing_variables(request_span)
 
         ctx.datadog = {
             request_span = request_span,
