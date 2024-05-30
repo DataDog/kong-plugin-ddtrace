@@ -1,3 +1,5 @@
+local lrucache = require("resty.lrucache")
+
 local ffi = require("ffi")
 ffi.cdef([[
 unsigned long long int strtoull(const char *nptr, char **endptr, int base);
@@ -124,9 +126,26 @@ local function join_table(separator, table)
     return result
 end
 
+local LRU = lrucache.new(1000)
+
+local function get_env(key)
+    local value = LRU:get(key)
+    if value then
+        return value
+    end
+
+    value = os.getenv(key)
+    if value then
+        LRU:set(key, value)
+    end
+
+    return value
+end
+
 return {
     concat = concat,
     dump = dump,
+    get_env = get_env,
     join_table = join_table,
     normalize_header_tags = normalize_header_tags,
     parse_uint64 = parse_uint64,

@@ -174,11 +174,7 @@ local function apply_resource_name_rules(uri, rules)
 end
 
 local function configure(conf)
-    local get_from_vault = kong.vault.get
-    local get_env = function(env_name)
-        local env_value, _ = get_from_vault(string.format("{vault://env/%s}", env_name))
-        return env_value
-    end
+    local get_env = utils.get_env
 
     -- Build agent url
     local agent_host = get_env("DD_AGENT_HOST") or conf.agent_host or "localhost"
