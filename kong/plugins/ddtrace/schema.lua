@@ -118,7 +118,7 @@ return {
             config = {
                 type = "record",
                 fields = {
-                    { service_name = { type = "string", required = true } },
+                    { service_name = { type = "string" } },
                     { environment = { type = "string" } },
                     -- priority of values for agent address details are resolved in new_trace_agent_writer
                     { agent_host = typedefs.host({}) },

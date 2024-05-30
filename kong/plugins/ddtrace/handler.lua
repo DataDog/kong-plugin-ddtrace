@@ -86,14 +86,13 @@ end
 local function expose_tracing_variables(span)
     -- Expose traceID and parentID for other plugin to consume and also set an NGINX variable
     -- that can be use for in `log_format` directive for correlation with logs.
-    -- NOTE: kong.ctx has the same lifetime as the current request.
     local trace_id = btohex(span.trace_id.high or 0, 16) .. btohex(span.trace_id.low, 16)
     local span_id = btohex(span.span_id, 16)
 
-    kong.ctx.shared.datadog_sdk_trace_id = trace_id
-    kong.ctx.shared.datadog_sdk_span_id = span_id
-    ngx.var.datadog_sdk_trace_id = trace_id
-    ngx.var.datadog_sdk_span_id = span_id
+    -- NOTE: kong.ctx has the same lifetime as the current request.
+    local kong_shared = kong.ctx.shared
+    kong_shared.datadog_sdk_trace_id = trace_id
+    kong_shared.datadog_sdk_span_id = span_id
 end
 
 -- adds the proxy span to the datadog context, unless it already exists
