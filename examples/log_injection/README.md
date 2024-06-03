@@ -2,7 +2,7 @@
 
 This is a `docker compose` setup showcases log correlation by creating two services: Datadog Agent and Kong Gateway.
 
-The Kong Gateway is configured to generate and send distributed traces to Datadog, and the [file-config](https://docs.konghq.com/hub/kong-inc/file-log/)
+The Kong Gateway is configured to generate and send distributed traces to Datadog, and the [file-log](https://docs.konghq.com/hub/kong-inc/file-log/)
 plugin to generate logs that will also be sent to Datadog. The entire configuration is located in [kong.yaml](./kong.yaml).
 
 To run this example, you will need a valid Datadog API key and Docker installed.
@@ -17,7 +17,7 @@ DD_API_KEY=<KEY> docker compose up
 
 2. Grant the `kong-dbless` service permission to create the log file in the shared volume:
 ```
-docker compose exece kong-dbless chown -R kong /shared
+docker compose exec kong-dbless chown -R kong /shared
 ```
 
 3. Send a request to Kong to generate traffic and a trace:
