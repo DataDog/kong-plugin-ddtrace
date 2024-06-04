@@ -1,0 +1,59 @@
+version: "3.2"
+
+services:
+  # `agent` is the Datadog Agent to which traces are sent.
+  # `agent` needs an API key set in the environment as the
+  # `DD_API_KEY` environment variable.
+  datadog-agent:
+    image: 'datadog/agent'
+    labels:
+      com.datadoghq.ad.logs: '[{"type": "file", "source": "kong", "service": "log-correlation-example-service", "path": "/shared/log-tracing.log"}]'
+    ports:
+      - 8136:8136
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock:ro'
+      - '/proc/:/host/proc/:ro'
+      - '/sys/fs/cgroup/:/host/sys/fs/cgroup:ro'
+      - shared-volume:/shared:ro
+    environment:
+      - DD_SITE
+      - DD_API_KEY
+      - DD_APM_ENABLED=true
+      - DD_LOGS_ENABLED=true
+      - DD_LOG_LEVEL=ERROR
+
+  kong-dbless:
+    image: 'kong/kong-gateway:3.3.0.0'
+    user: root
+    links:
+      - datadog-agent
+    volumes:
+      - ./kong.yaml:/kong/declarative/kong.yaml
+      - ../../kong:/tmp/custom_plugins/kong
+      - shared-volume:/shared
+    environment:
+      - DD_SERVICE=log-correlation-example-service
+      - DD_AGENT_HOST=datadog-agent
+      - KONG_DATABASE=off
+      - KONG_LOG_LEVEL=info
+      - KONG_DECLARATIVE_CONFIG=/kong/declarative/kong.yaml
+      - KONG_PROXY_ACCESS_LOG=/dev/stdout
+      - KONG_ADMIN_ACCESS_LOG=/dev/stdout
+      - KONG_PROXY_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001
+      - KONG_ADMIN_GUI_URL=http://localhost:8002"
+      - "KONG_LUA_PACKAGE_PATH=/tmp/custom_plugins/?.lua;;"
+      - "KONG_PLUGINS=bundled,ddtrace"
+    ports:
+      - 8000:8000
+      - 8001:8001
+      - 8002:8002
+      - 8003:8003
+      - 8004:8004
+      - 8443:8443
+      - 8444:8444
+      - 8445:8445
+
+volumes:
+  shared-volume:

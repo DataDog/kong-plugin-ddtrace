@@ -1,0 +1,18 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+- name: service-a
+  url: http://httpbin.org/headers
+  plugins:
+    - name: ddtrace
+    - name: file-log
+      config:
+        path: /shared/log-tracing.log
+        custom_fields_by_lua:
+          dd.trace_id: return kong.ctx.shared.datadog_sdk_trace_id
+          dd.span_id: return kong.ctx.shared.datadog_sdk_span_id
+  routes:
+  - name: my-route-a
+    paths:
+    - /foo
