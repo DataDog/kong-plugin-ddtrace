@@ -51,8 +51,12 @@ local function normalize_header_tags(header_tags)
     local normalized = {}
 
     for i = 1, #header_tags do
-        local tag = header_tags[i].tag
+        local tag = header_tags[i].tag or ""
         local header = header_tags[i].header
+
+        if not header then
+            goto continue
+        end
 
         local norm_header = string.lower(string.gsub(header, "%s+", ""))
         if #norm_header == 0 then
