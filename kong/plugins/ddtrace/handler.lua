@@ -192,6 +192,9 @@ local function configure(conf)
     local get_from_vault = kong.vault.get
     local get_env = function(env_name)
         local env_value, _ = get_from_vault(string.format("{vault://env/%s}", env_name))
+        if env_value and #env_value == 0 then
+            return nil
+        end
         return env_value
     end
 
