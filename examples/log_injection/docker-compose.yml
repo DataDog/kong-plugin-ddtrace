@@ -9,7 +9,7 @@ services:
     labels:
       com.datadoghq.ad.logs: '[{"type": "file", "source": "kong", "service": "log-correlation-example-service", "path": "/shared/log-tracing.log"}]'
     ports:
-      - 8136:8136
+      - 8126:8126
     volumes:
       - '/var/run/docker.sock:/var/run/docker.sock:ro'
       - '/proc/:/host/proc/:ro'
@@ -32,8 +32,6 @@ services:
       - ../../kong:/tmp/custom_plugins/kong
       - shared-volume:/shared
     environment:
-      - DD_SERVICE=log-correlation-example-service
-      - DD_AGENT_HOST=datadog-agent
       - KONG_DATABASE=off
       - KONG_LOG_LEVEL=info
       - KONG_DECLARATIVE_CONFIG=/kong/declarative/kong.yaml

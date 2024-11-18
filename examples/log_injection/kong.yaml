@@ -6,6 +6,9 @@ services:
   url: http://httpbin.org/headers
   plugins:
     - name: ddtrace
+      config:
+        agent_host: datadog-agent
+        service_name: log-correlation-example-service
     - name: file-log
       config:
         path: /shared/log-tracing.log
