@@ -128,10 +128,20 @@ local function join_table(separator, table)
     return result
 end
 
+local function trace_id_equals(a, b)
+    return a.low == b.low and a.high == b.high
+end
+
+local function trace_id_str(trace_id)
+    return "high: " .. tostring(trace_id.high) .. ", low: " .. tostring(trace_id.low)
+end
+
 return {
     concat = concat,
     dump = dump,
     join_table = join_table,
     normalize_header_tags = normalize_header_tags,
     parse_uint64 = parse_uint64,
+    trace_id_equals = trace_id_equals,
+    trace_id_str = trace_id_str,
 }

@@ -1,6 +1,10 @@
 local datadog = require("kong.plugins.ddtrace.datadog_propagation")
 local w3c = require("kong.plugins.ddtrace.w3c_propagation")
 local new_span = require("kong.plugins.ddtrace.span").new
+local utils = require("kong.plugins.ddtrace.utils")
+
+local trace_id_equals = utils.trace_id_equals
+local trace_id_str = utils.trace_id_str
 
 local extractors = {
     datadog = datadog.extract,
@@ -42,11 +46,15 @@ function propagator:extract_or_create_span(request, span_options)
         if extracted then
             if not trace_context then
                 trace_context = extracted
-            elseif trace_context.trace_id ~= extracted.trace_id then
+            elseif not trace_id_equals(trace_context.trace_id, extracted.trace_id) then
                 -- TODO: add span links
-                local msg = "The extracted trace ID, obtained using "
+                local msg = "The extracted trace ID ("
+                    .. trace_id_str(extracted.trace_id)
+                    .. "), obtained using "
                     .. style
-                    .. " style, does not match the local trace ID"
+                    .. " style, does not match the local trace ID ("
+                    .. trace_id_str(trace_context.trace_id)
+                    .. ")"
                 kong.log.warn(msg)
             end
         end
