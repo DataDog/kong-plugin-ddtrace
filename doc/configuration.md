@@ -19,8 +19,8 @@ Configuration can be set either through the plugin configuration field or enviro
 | `trace_agent_port` | `DD_TRACE_AGENT_PORT` | Port to reach the Datadog Agent | `v0.2.0` | `number` | `8126` |
 | `trace_agent_url` | `DD_TRACE_AGENT_URL` | URL used to reach the Datadog Agent | `v0.2.0` | `string` | `http://localhost:8126` |
 | `service_name` | `DD_SERVICE` | Name of the service that is producing traces | `v0.0.1` | `string` | Service registered by Kong or `kong` |
-| `environment` | `DD_ENV` | Add `env` tag for [Unified Service Tagging](https://docs-staging.datadoghq.com/dmehala/cpp-updates/getting_started/tagging/unified_service_tagging/?tab=kubernetes)  | `v0.0.1` | `string` | `nil` |
-| `version` | `DD_VERSION` | Sets the version of the service and add `version` tag for [Unified Service Tagging](https://docs-staging.datadoghq.com/dmehala/cpp-updates/getting_started/tagging/unified_service_tagging/?tab=kubernetes) | `v0.2.0` | `string` | `nil` |
+| `environment` | `DD_ENV` | Add `env` tag for [Unified Service Tagging](https://docs.datadoghq.com/getting_started/tagging/unified_service_tagging/?tab=kubernetes)  | `v0.0.1` | `string` | `nil` |
+| `version` | `DD_VERSION` | Sets the version of the service and add `version` tag for [Unified Service Tagging](https://docs.datadoghq.com/getting_started/tagging/unified_service_tagging/?tab=kubernetes) | `v0.2.0` | `string` | `nil` |
 | `static_tags` |  | List of tags to be added to root spans | `v0.0.1` | `array[tag] with tag = {name=str, value=str}]` | `nil` |
 | `injection_propagation_styles` |  | Propagation style used for injecting trace context | `v0.2.0` | `array[str]` | `{ "datadog", "tracecontext"}` |
 | `extraction_propagation_styles` |  | Propagation style used for extracting trace context. Values are limited to `datadog` and `tracecontext`.  | `v0.2.0` | `array[str]` | `{ "datadog", "tracecontext"}` |
