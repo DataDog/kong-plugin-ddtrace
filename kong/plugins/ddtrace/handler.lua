@@ -11,7 +11,7 @@ local regex = ngx.re
 local btohex = bit.tohex
 
 local DatadogTraceHandler = {
-    VERSION = "0.2.1",
+    VERSION = "0.2.2",
     -- We want to run first so that timestamps taken are at start of the phase.
     -- However, it might be useful to finish spans after other plugins have completed
     -- to more accurately represent the request completion time.
