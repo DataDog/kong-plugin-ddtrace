@@ -100,6 +100,7 @@ local function get_or_add_proxy_span(datadog, timestamp)
     if not datadog.proxy_span then
         local request_span = datadog.request_span
         local proxy_span = request_span:new_child("kong.proxy", request_span.resource, timestamp)
+        proxy_span:set_tag("span.kind", "client")
         datadog.proxy_span = proxy_span
         expose_tracing_variables(proxy_span)
     end
