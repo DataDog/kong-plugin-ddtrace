@@ -154,6 +154,7 @@ return {
                             default = { "datadog", "tracecontext" },
                         },
                     },
+                    { startup_log = { type = "boolean", default = true } },
                     -- Deprecated:
                     { agent_endpoint = { type = "string", custom_validator = deprecated_agent_endpoint } },
                 },

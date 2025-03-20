@@ -136,6 +136,10 @@ local function trace_id_str(trace_id)
     return "high: " .. tostring(trace_id.high) .. ", low: " .. tostring(trace_id.low)
 end
 
+local function is_truthy(v)
+    return v and v == "1" or v == "true" or v == "yes"
+end
+
 return {
     concat = concat,
     dump = dump,
@@ -144,4 +148,5 @@ return {
     parse_uint64 = parse_uint64,
     trace_id_equals = trace_id_equals,
     trace_id_str = trace_id_str,
+    is_truthy = is_truthy,
 }

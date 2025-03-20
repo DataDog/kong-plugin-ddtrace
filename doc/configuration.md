@@ -28,6 +28,7 @@ Configuration can be set either through the plugin configuration field or enviro
 | `intial_samples_per_second` | | Maximum number of traces allowed to be submitted per second | `v0.0.1` | `number` | `100` |
 | `resource_name_rule` | | Replace matching resources to lower the cardinality on resource names | `v0.0.1` | `array[rule] with rule = {match=str, replacement=str}]` | `nil` |
 | `header_tags` |  | Set HTTP Headers as root tags | `v0.2.0` | `array[header_tag] with header_tag = {header=str, tag=str}]` | `nil` |
+| `startup_log` | `DD_TRACE_STARTUP_LOGS` | Log the tracer configuration once the tracer is fully initialized and every time there's a config update | `v0.2.3` | `boolean` | `true` |
 
 ## Sampling Controls
 
