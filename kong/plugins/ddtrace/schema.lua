@@ -1,35 +1,12 @@
 local typedefs = require("kong.db.schema.typedefs")
 local Schema = require("kong.db.schema")
-
-local PROTECTED_TAGS = {
-    "env",
-    "version",
-    "component",
-    "span.kind",
-    "error",
-    "http.method",
-    "http.url",
-    "http.status_code",
-    "http.useragent",
-    "http.client_ip",
-    "http.request.content_length",
-    "http.response.content_length",
-    "http.version",
-    "kong.balancer.state",
-    "kong.balancer.try",
-    "kong.consumer",
-    "kong.credential",
-    "kong.node.id",
-    "kong.route",
-    "kong.service",
-    "peer.hostname",
-}
+local protected_tags = require("kong.plugins.ddtrace.protected_tags")
 
 local header_tag = Schema.define({
     type = "record",
     fields = {
         { header = { type = "string", required = true } },
-        { tag = { type = "string", not_one_of = PROTECTED_TAGS } },
+        { tag = { type = "string", not_one_of = protected_tags } },
     },
 })
 
@@ -52,7 +29,7 @@ end
 local static_tag = Schema.define({
     type = "record",
     fields = {
-        { name = { type = "string", required = true, not_one_of = PROTECTED_TAGS } },
+        { name = { type = "string", required = true, not_one_of = protected_tags } },
         { value = { type = "string", required = true } },
     },
 })

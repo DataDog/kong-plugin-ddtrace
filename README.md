@@ -1,23 +1,36 @@
-# Datadog APM Plugin for Kong
+# Kong Plugin for Datadog APM
 [![codecov](https://codecov.io/github/DataDog/kong-plugin-ddtrace/graph/badge.svg?token=htSU1hFalA)](https://codecov.io/github/DataDog/kong-plugin-ddtrace)
 
-This plugin adds Datadog tracing to Kong.
-It was originally based on the [zipkin plugin](https://github.com/Kong/kong-plugin-zipkin), although it is now significantly modified for Datadog-specific functionality.
+The `kong-plugin-ddtrace` is a Datadog APM plugin designed to integrate seamlessly with the Kong Gateway.
+This plugin enables detailed tracing of requests passing through Kong, providing insights into the performance and behavior of your APIs.
 
-## Compatibility
+## Features
 
-This plugin is compatible with Kong Gateway `v2.x` and `v3.x`.
-The oldest version tested is `v2.0.5` and the newest is `v3.6.1`
+- **Detailed Tracing**: Capture and report trace data to the Datadog Agent, allowing you to monitor and diagnose performance issues in real-time.
+- **Real-Time Monitoring**: Integrate with Datadog to monitor API performance and diagnose issues in real-time.
+- **Configurable**: Supports a wide range of configuration options to tailor tracing to your specific needs.
+- **Compatibility**: Works with various Kong deployment environments, including Kubernetes.
 
-## Installation
+## Getting Started
 
-This plugin can be installed using `luarocks`.
+> [!IMPORTANT]
+> This plugin is compatible with Kong Gateway `v3.5+`.
+> For older version of Kong, please use [v0.2.2](https://github.com/DataDog/kong-plugin-ddtrace/releases/tag/v0.2.2) or older versions.
+
+### Prerequisites
+
+- Kong Gateway installed and running.
+- Datadog Agent installed and configured.
+- API key for Datadog.
+
+### Installation
 
 ```bash
 luarocks install kong-plugin-ddtrace
 ```
 
-## Usage
+### Usage
+
 Kong Admin API:
 
 ```bash
@@ -48,63 +61,21 @@ services:
     - /
 ````
 
-## Configuration
+### Configuration
 
 This plugin supports a number of configuration options. These can be supplied when registering the plugin or by setting environment variables.
 
 More details on the [Configuration page](doc/configuration.md).
 
-## Testing
+## Support
 
-### Test Environment
+For support, please [open an issue on the GitHub repository](/issues) or [contact Datadog support](https://help.datadoghq.com/hc/en-us/requests/new).
 
-Testing can be performed using `pongo`. Installation instructions are [here](https://github.com/Kong/kong-pongo#installation).
+## Contributing
 
-Prepare the environment:
+Contributions are welcome! Please read [the contributing guidelines](./CONTRIBUTING.md) and follow the best practices outlined in the project documentation.
 
-```bash
-export DD_API_KEY=... # your API key is required for this test to successfully submit traces from the agent to Datadog.
-git clone https://github.com/Datadog/kong-plugin-ddtrace
-cd kong-plugin-ddtrace
-pongo up
-pongo shell
-```
+## License
 
-Inside the shell:
-```bash
-# This migration step is only required the first time after running `pongo up`
-kong migrations bootstrap
+This project is licensed under the Apache License 2.0. See the LICENSE file for details.
 
-export KONG_PLUGINS=bundled,ddtrace
-kong start
-
-# Create a service named example service that handles requests for httpbin.org and routes requests for example.com to that endpoint.
-curl -i -X POST --url http://localhost:8001/services/ --data 'name=example-service' --data 'url=http://httpbin.org'
-curl -i -X POST --url http://localhost:8001/services/example-service/routes --data 'hosts[]=example.com'
-curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --data 'name=ddtrace' --data 'config.agent_host=datadog-agent'
-
-curl --header 'Host: example.com' http://localhost:8000/headers
-```
-
-This should result in a JSON response from the final `curl` request, with headers containing `x-datadog-trace-id`, `x-datadog-parent-id` and `x-datadog-sampling-priority`.
-If the `DD_API_KEY` was correctly set, then the trace should appear at https://app.datadoghq.com/apm/traces
-
-### Built-in Tests
-
-The built-in tests can be executed by running `pongo run --no-datadog-agent`.
-
-A report for test coverage is produced when run with additional options: `pongo run --no-datadog-agent -- --coverage`.
-
-## Issues and Incomplete features
-
-- The request span's start time appears incorrect, as it is a rounded-down millisecond value provided by Kong.
-- More details should be collected for errors
-- A high resolution timer option should be added (eg: using `clock_gettime` instead of `ngx.now()`)
-
-## Acknowledgements
-
-This plugin is based on the original Zipkin plugin developed and maintained by Kong. It provided the overall architecture and a number of implementation details that were used as-is in this plugin.
-
-The pongo tool was especially helpful in the development of this plugin. It is easy to use, very featureful and is clearly written "by developers, for developers".
-
-For encoding datadog trace information in MessagePack, the Lua module from François Perrad (https://framagit.org/fperrad) was used as the base. Modifications were made to support encoding `uint64_t` and `int64_t` values.
