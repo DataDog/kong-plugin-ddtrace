@@ -55,3 +55,23 @@ describe("utils.concat", function()
         assert.same(utils.concat("Datadog", ", "), "Datadog")
     end)
 end)
+
+describe("utils.is_truthy", function()
+    it("cases", function()
+        local test_cases = {
+            { input = nil, expected = false },
+            { input = "", expected = false },
+            { input = "false", expected = false },
+            { input = "no", expected = false },
+            { input = "0", expected = false },
+            { input = "anything", expected = false },
+            { input = "1", expected = true },
+            { input = "true", expected = true },
+            { input = "yes", expected = true },
+        }
+
+        for _, case in ipairs(test_cases) do
+            assert.same(case.expected, utils.is_truthy(case.input))
+        end
+    end)
+end)

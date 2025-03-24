@@ -190,6 +190,10 @@ local function apply_resource_name_rules(uri, rules)
 end
 
 local function configure(conf)
+    if ddtrace_conf and conf["__seq__"] == ddtrace_conf["__id__"] then
+        return
+    end
+
     local get_from_vault = kong.vault.get
     local get_env = function(env_name)
         local env_value, _ = get_from_vault(string.format("{vault://env/%s}", env_name))
@@ -217,7 +221,15 @@ local function configure(conf)
         extraction_propagation_styles = conf.extraction_propagation_styles,
     }
 
-    kong.log.info("DATADOG TRACER CONFIGURATION - " .. utils.dump(ddtrace_conf))
+    local log_conf = conf.startup_log
+    local env_log_conf = get_env("DD_TRACE_STARTUP_LOGS")
+    if env_log_conf then
+        log_conf = utils.is_truthy(env_log_conf)
+    end
+
+    if log_conf then
+        kong.log.info("DATADOG TRACER CONFIGURATION - " .. utils.dump(ddtrace_conf))
+    end
 
     agent_writer_timer = ngx.timer.every(2.0, flush_agent_writers)
     sampler = new_sampler(math.ceil(conf.initial_samples_per_second / ngx_worker_count), conf.initial_sample_rate)
@@ -234,12 +246,9 @@ end
 
 if subsystem == "http" then
     initialize_request = function(conf, ctx)
-        if not ddtrace_conf or conf["__seq__"] ~= ddtrace_conf["__id__"] then
-            -- NOTE(@dmehala): Kong versions older than 3.5 do not call `plugin:configure` method.
-            -- `configure` will be called only on the first request or when the configuration has
-            -- been updated.
-            configure(conf)
-        end
+        -- NOTE(@dmehala): Kong versions older than 3.5 do not call `plugin:configure` method.
+        -- `configure` will ensure the configuration is processed only when necessary.
+        configure(conf)
 
         local req = kong.request
         local method = req.get_method()
