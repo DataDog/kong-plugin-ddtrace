@@ -1,0 +1,51 @@
+variables:
+  BASE_CI_IMAGE_SUFFIX: kong-gateway
+  BASE_CI_IMAGE: 486234852809.dkr.ecr.us-east-1.amazonaws.com/ci/benchmarking-platform:$BASE_CI_IMAGE_SUFFIX
+
+.benchmarks:
+  stage: benchmarks
+  tags: ["runner:apm-k8s-same-cpu"]
+  timeout: 1h
+  rules:
+    - if: $NIGHTLY_BENCHMARKS || $CI_COMMIT_REF_NAME == "master"
+      when: always
+    - when: manual
+  image: $BASE_CI_IMAGE
+  script:
+    - git clone --branch kong https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.ddbuild.io/DataDog/benchmarking-platform platform && cd platform
+    - bp-runner bp-runner.yml --debug
+    - "./steps/post-pr-comment.sh || :"
+  artifacts:
+    name: "artifacts"
+    when: always
+    paths:
+      - platform/artifacts/
+    expire_in: 3 months
+  variables:
+    UPSTREAM_PROJECT_ID: $CI_PROJECT_ID # The ID of the current project. This ID is unique across all projects on the GitLab instance.
+    UPSTREAM_PROJECT_NAME: $CI_PROJECT_NAME # "dd-trace-cpp"
+    UPSTREAM_BRANCH: $CI_COMMIT_REF_NAME # The branch or tag name for which project is built.
+    UPSTREAM_COMMIT_SHA: $CI_COMMIT_SHA # The commit revision the project is built for.
+
+    K6_OPTIONS_NORMAL_OPERATION_RATE: 1000
+    K6_OPTIONS_NORMAL_OPERATION_DURATION: 5m
+    K6_OPTIONS_NORMAL_OPERATION_GRACEFUL_STOP: 10s
+    K6_OPTIONS_NORMAL_OPERATION_PRE_ALLOCATED_VUS: 4
+    K6_OPTIONS_NORMAL_OPERATION_MAX_VUS: 4
+
+    K6_OPTIONS_HIGH_LOAD_RATE: 5000
+    K6_OPTIONS_HIGH_LOAD_DURATION: 2m
+    K6_OPTIONS_HIGH_LOAD_GRACEFUL_STOP: 10s
+    K6_OPTIONS_HIGH_LOAD_PRE_ALLOCATED_VUS: 4
+    K6_OPTIONS_HIGH_LOAD_MAX_VUS: 4
+
+    # Gitlab and BP specific env vars. Do not modify.
+    KUBERNETES_SERVICE_ACCOUNT_OVERWRITE: nginx-datadog
+    FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY: "true"
+
+  # Workaround: Currently we're not running the benchmarks on every PR, but GitHub still shows them as pending.
+  # By marking the benchmarks as allow_failure, the Github checks are not displayed.
+  allow_failure: true
+
+baseline:
+  extends: .benchmarks
