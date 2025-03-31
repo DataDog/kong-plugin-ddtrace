@@ -49,8 +49,6 @@ local function expose_tracing_variables(span)
     -- that can be use for in `log_format` directive for correlation with logs.
     local trace_id = btohex(span.trace_id.high or 0, 16) .. btohex(span.trace_id.low, 16)
     local span_id = btohex(span.span_id, 16)
-    -- local trace_id = btohex(span.trace_id.high or 0, 16) .. btohex(span.trace_id.low, 16)
-    -- local span_id = btohex(span.span_id, 16)
 
     -- NOTE: kong.ctx has the same lifetime as the current request.
     local kong_shared = kong.ctx.shared

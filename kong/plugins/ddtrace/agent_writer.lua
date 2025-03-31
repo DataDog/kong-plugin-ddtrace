@@ -15,7 +15,7 @@ local queue_conf = {
     max_coalescing_delay = 2,
     max_entries = 10000,
     -- Intake max payload allowed is 5MiB
-    max_bytes = 5 * 8388608,
+    max_bytes = 5 * 1024 * 1024,
     max_retry_time = 60,
     max_retry_delay = 60,
     initial_retry_delay = 0.01,
