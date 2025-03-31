@@ -3,6 +3,7 @@ local new_trace_agent_writer = require("kong.plugins.ddtrace.agent_writer").new
 local new_propagator = require("kong.plugins.ddtrace.propagation").new
 local utils = require("kong.plugins.ddtrace.utils")
 local time_ns = utils.time_ns
+local cjson = require("cjson")
 
 local pcall = pcall
 local fmt = string.format
@@ -30,6 +31,17 @@ local propagator
 local sampler
 local header_tags
 local ddtrace_conf
+
+-- NOTE(@dmehala): Load environment variable here because `os.getenv`
+-- the handler is executed on master worker and has access to environment variables.
+local get_env = os.getenv
+local AGENT_HOST = get_env("DD_AGENT_HOST")
+local AGENT_PORT = get_env("DD_TRACE_AGENT_PORT")
+local DD_SERVICE = get_env("DD_SERVICE")
+local DD_ENV = get_env("DD_ENV")
+local DD_VERSION = get_env("DD_VERSION")
+local DD_AGENT_URL = get_env("DD_TRACE_AGENT_URL")
+local DD_TRACE_STARTUP_LOGS = get_env("DD_TRACE_STARTUP_LOGS")
 
 -- Memoize some data attached to traces
 local ngx_worker_pid = ngx.worker.pid()
@@ -120,18 +132,9 @@ local function configure(conf)
         return
     end
 
-    local get_from_vault = kong.vault.get
-    local get_env = function(env_name)
-        local env_value, _ = get_from_vault(string.format("{vault://env/%s}", env_name))
-        if env_value and #env_value == 0 then
-            return nil
-        end
-        return env_value
-    end
-
     -- Build agent url
-    local agent_host = get_env("DD_AGENT_HOST") or conf.agent_host or "localhost"
-    local agent_port = get_env("DD_TRACE_AGENT_PORT") or conf.trace_agent_port or "8126"
+    local agent_host = AGENT_HOST or conf.agent_host or "localhost"
+    local agent_port = AGENT_PORT or conf.trace_agent_port or "8126"
     if type(agent_port) ~= "string" then
         agent_port = tostring(agent_port)
     end
@@ -139,22 +142,22 @@ local function configure(conf)
 
     ddtrace_conf = {
         __id__ = conf["__seq__"],
-        service = get_env("DD_SERVICE") or conf.service_name or "kong",
-        environment = get_env("DD_ENV") or conf.environment,
-        version = get_env("DD_VERSION") or conf.version,
-        agent_url = get_env("DD_TRACE_AGENT_URL") or conf.trace_agent_url or agent_url,
+        service = DD_SERVICE or conf.service_name or "kong",
+        environment = DD_ENV or conf.environment,
+        version = DD_VERSION or conf.version,
+        agent_url = DD_AGENT_URL or conf.trace_agent_url or agent_url,
         injection_propagation_styles = conf.injection_propagation_styles,
         extraction_propagation_styles = conf.extraction_propagation_styles,
     }
 
     local log_conf = conf.startup_log
-    local env_log_conf = get_env("DD_TRACE_STARTUP_LOGS")
+    local env_log_conf = DD_TRACE_STARTUP_LOGS
     if env_log_conf then
         log_conf = utils.is_truthy(env_log_conf)
     end
 
     if log_conf then
-        kong.log.info("DATADOG TRACER CONFIGURATION - " .. utils.dump(ddtrace_conf))
+        kong.log.info("DATADOG TRACER CONFIGURATION - " .. cjson.encode(ddtrace_conf))
     end
 
     sampler = new_sampler(math.ceil(conf.initial_samples_per_second / ngx_worker_count), conf.initial_sample_rate)
