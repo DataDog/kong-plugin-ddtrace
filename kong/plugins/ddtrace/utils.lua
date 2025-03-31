@@ -1,7 +1,17 @@
 local ffi = require("ffi")
+local C = ffi.C
 ffi.cdef([[
+typedef long time_t;
+typedef int clockid_t;
+typedef struct timespec nanotime;
+
 unsigned long long int strtoull(const char *nptr, char **endptr, int base);
+int clock_gettime(clockid_t clk_id, struct timespec *tp);
 ]])
+
+local tonumber = tonumber
+
+local _M = {}
 
 --[[
 `normalize_header_tags` processes a collection of header tags, normalizing
@@ -45,7 +55,7 @@ local result = normalize_header_tags(header_tags)
 --   d_ata__d_o_g = { normalized = true, value = "d_ata__d_o_g" },
 -- }
 --]]
-local function normalize_header_tags(header_tags)
+function _M.normalize_header_tags(header_tags)
     -- `header_tags` already passed the validation step, no need to check for
     -- the type and if the key is unique.
     local normalized = {}
@@ -78,7 +88,7 @@ local function normalize_header_tags(header_tags)
     return normalized
 end
 
-local function concat(input, separator)
+function _M.concat(input, separator)
     if type(input) ~= "table" then
         return input
     end
@@ -86,14 +96,14 @@ local function concat(input, separator)
     return table.concat(input, separator)
 end
 
-local function dump(o)
+function _M.dump(o)
     if type(o) == "table" then
         local s = "{ "
         for k, v in pairs(o) do
             if type(k) ~= "number" then
                 k = '"' .. k .. '"'
             end
-            s = s .. "[" .. k .. "] = " .. dump(v) .. ","
+            s = s .. "[" .. k .. "] = " .. _M.dump(v) .. ","
         end
         return s .. "} "
     else
@@ -101,12 +111,12 @@ local function dump(o)
     end
 end
 
-local function parse_uint64(str, base)
+function _M.parse_uint64(str, base)
     if not str then
         return nil, "unable to parse, value is nil"
     end
     ffi.errno(0)
-    local parsed_str = ffi.C.strtoull(str, nil, base)
+    local parsed_str = C.strtoull(str, nil, base)
     local err = ffi.errno()
     if err ~= 0 then
         return nil, "unable to parse '" .. str .. "' (base " .. base .. ") as 64-bit number, errno=" .. err
@@ -116,7 +126,7 @@ local function parse_uint64(str, base)
 end
 
 -- Joins the elements of a table into a single string using a specified separator.
-local function join_table(separator, table)
+function _M.join_table(separator, table)
     local result = ""
     local length = #table
     for i, v in ipairs(table) do
@@ -128,25 +138,29 @@ local function join_table(separator, table)
     return result
 end
 
-local function trace_id_equals(a, b)
+function _M.trace_id_equals(a, b)
     return a.low == b.low and a.high == b.high
 end
 
-local function trace_id_str(trace_id)
+function _M.trace_id_str(trace_id)
     return "high: " .. tostring(trace_id.high) .. ", low: " .. tostring(trace_id.low)
 end
 
-local function is_truthy(v)
+function _M.is_truthy(v)
     return v and v == "1" or v == "true" or v == "yes"
 end
 
-return {
-    concat = concat,
-    dump = dump,
-    join_table = join_table,
-    normalize_header_tags = normalize_header_tags,
-    parse_uint64 = parse_uint64,
-    trace_id_equals = trace_id_equals,
-    trace_id_str = trace_id_str,
-    is_truthy = is_truthy,
-}
+-- NOTE(@dmehala): Backport of `kong.tools.time.time_ns` to support Kong 3.4
+-- Even if that's something we investigate back in 2023, credits goes to Kong's team.
+do
+    local nanop = ffi.new("nanotime[1]")
+    function _M.time_ns()
+        -- CLOCK_REALTIME -> 0
+        C.clock_gettime(0, nanop)
+        local t = nanop[0]
+
+        return tonumber(t.tv_sec) * 1e9 + tonumber(t.tv_nsec)
+    end
+end
+
+return _M
