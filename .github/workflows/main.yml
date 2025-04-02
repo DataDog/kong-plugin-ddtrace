@@ -63,7 +63,7 @@ jobs:
           ORIGINAL_VERSION="$(grep 'VERSION' kong/plugins/ddtrace/handler.lua | awk -F '"' '{print $2;exit}')"
           echo "PLUGIN_VERSION=${ORIGINAL_VERSION}.rc.${GITHUB_SHA::7}" >> GITHUB_ENV
       - name: Update pluging handler version
-        run: sed 's|VERSION = ".*"|VERSION = "${PLUGIN_VERSION}"|' kong/plugins/ddtrace/handler.lua
+        run: sed -i "s|VERSION = \".*\"|VERSION = \"${PLUGIN_VERSION}\"|" kong/plugins/ddtrace/handler.lua
       - name: Package
         run: |
           TIP_ROCKSPEC="$(python scripts/gen-rockspec.py --version ${PLUGIN_VERSION} --tag tip)"
