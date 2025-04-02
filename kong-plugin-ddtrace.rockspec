@@ -25,6 +25,7 @@ build = {
         ["kong.plugins.ddtrace.handler"] = "kong/plugins/ddtrace/handler.lua",
         ["kong.plugins.ddtrace.msgpack_encode"] = "kong/plugins/ddtrace/msgpack_encode.lua",
         ["kong.plugins.ddtrace.propagation"] = "kong/plugins/ddtrace/propagation.lua",
+        ["kong.plugins.ddtrace.protected_tags"] = "kong/plugins/ddtrace/protected_tags.lua",
         ["kong.plugins.ddtrace.sampler"] = "kong/plugins/ddtrace/sampler.lua",
         ["kong.plugins.ddtrace.schema"] = "kong/plugins/ddtrace/schema.lua",
         ["kong.plugins.ddtrace.span"] = "kong/plugins/ddtrace/span.lua",

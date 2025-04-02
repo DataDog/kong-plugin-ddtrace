@@ -11,6 +11,7 @@ jobs:
     container: "datadog/docker-library:kong-plugin-ddtrace-ci"
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
       - name: "Lint"
         run: stylua --check kong/ spec/
       - name: "Static analysis"
@@ -20,6 +21,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
       - uses: Kong/kong-pongo-action@v1
         with:
           kong_version: stable
@@ -35,17 +37,64 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: DataDog/kong-plugin-ddtrace
 
-  publish-release-candidate:
+  package:
     runs-on: ubuntu-22.04
     needs: [format, run-test]
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
       - name: Install Python
         uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 #v5.0.5
       - uses: leafo/gh-actions-lua@8aace3457a2fcf3f3c4e9007ecc6b869ff6d74d6 #v11
       - uses: leafo/gh-actions-luarocks@4c082a5fad45388feaeb0798dbd82dbd7dc65bca #v5
+      - name: Generate version
+        run: |
+          ORIGINAL_VERSION="$(grep 'VERSION' kong/plugins/ddtrace/handler.lua | awk -F '"' '{print $2;exit}')"
+          echo "PLUGIN_VERSION=${ORIGINAL_VERSION}.rc.${GITHUB_SHA::7}" >> $GITHUB_ENV
+      - name: Update plugin handler version
+        run: sed -i "s|VERSION = \".*\"|VERSION = \"${PLUGIN_VERSION}\"|" kong/plugins/ddtrace/handler.lua
+      - name: Package
+        run: |
+          TIP_ROCKSPEC="$(python scripts/gen-rockspec.py --version ${PLUGIN_VERSION} --tag tip)"
+          luarocks pack ${TIP_ROCKSPEC}
+      - name: Export package
+        uses:  actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
+        with:
+          name: kong-ddtrace-artifact
+          path: kong-plugin-ddtrace*.rock
+          if-no-files-found: error
+
+  test-package:
+    runs-on: ubuntu-22.04
+    needs: package
+    container:
+      image: "kong/kong-gateway:3.5.0.0-ubuntu"
+      options: --user root
+    steps:
+      - name: Install dependencies
+        run: apt update -y && apt install -y zip
+      - name: Download a single artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e #v4.2.1
+        with:
+          name: kong-ddtrace-artifact
+      - name: Install plugin
+        run: luarocks install kong-plugin-ddtrace*.rock
+      - name: Start Kong
+        env:
+          KONG_DATABASE: off
+          KONG_PLUGINS: bundled,ddtrace
+        run: kong start
+
+  publish-release-candidate:
+    runs-on: ubuntu-22.04
+    needs: test-package
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+      - name: Download a single artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e #v4.2.1
+        with:
+          name: kong-ddtrace-artifact
       - name: Generate pre-release metadata
         run: |
           {
@@ -59,16 +108,6 @@ jobs:
             echo "1. Download the rock."
             echo "2. Install it using luarock: \`luarock install <ROCK>.src.rock\`"
           } >> $RUNNER_TEMP/notes.md
-
-          ORIGINAL_VERSION="$(grep 'VERSION' kong/plugins/ddtrace/handler.lua | awk -F '"' '{print $2;exit}')"
-          echo "PLUGIN_VERSION=${ORIGINAL_VERSION}.rc.${GITHUB_SHA::7}" >> $GITHUB_ENV
-      - name: Update pluging handler version
-        run: sed -i "s|VERSION = \".*\"|VERSION = \"${PLUGIN_VERSION}\"|" kong/plugins/ddtrace/handler.lua
-      - name: Package
-        run: |
-          TIP_ROCKSPEC="$(python scripts/gen-rockspec.py --version ${PLUGIN_VERSION} --tag tip)"
-          luarocks pack ${TIP_ROCKSPEC}
-          mv kong-plugin-ddtrace*.rock $RUNNER_TEMP
       - name: Update tip tag
         run: git push origin :tip || true
       - name: Create or Update Release
@@ -79,4 +118,4 @@ jobs:
           gh release create tip --title "Development (pre-release) build" \
           --prerelease \
           --notes-file "$RUNNER_TEMP/notes.md" \
-          --target $GITHUB_SHA $RUNNER_TEMP/kong-plugin-ddtrace*.rock
+          --target $GITHUB_SHA kong-plugin-ddtrace*.rock

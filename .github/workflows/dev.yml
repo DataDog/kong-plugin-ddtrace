@@ -6,6 +6,7 @@ on:
       - '!main'
     tags:
       - '!tips'
+      - '!v*.*.*'
 
 jobs:
   format:
