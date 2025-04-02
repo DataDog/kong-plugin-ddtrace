@@ -6,40 +6,42 @@ on:
     #   - main
 
 jobs:
-  # format:
-  #   runs-on: ubuntu-22.04
-  #   container: "datadog/docker-library:kong-plugin-ddtrace-ci"
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #     - name: "Lint"
-  #       run: stylua --check kong/ spec/
-  #     - name: "Static analysis"
-  #       run: luacheck kong spec
-  #
-  # run-test:
-  #   runs-on: ubuntu-22.04
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #     - uses: Kong/kong-pongo-action@v1
-  #       with:
-  #         kong_version: stable
-  #         pongo_version: latest
-  #     - run: pongo run --no-datadog-agent --no-postgres --no-cassandra -- --coverage
-  #     - name: Publish code coverage summary
-  #       run: |
-  #         beg=$( grep -n "Summary" < luacov.report.out | cut -d ':' -f1 )
-  #         tail --lines=+${beg} luacov.report.out >> $GITHUB_STEP_SUMMARY
-  #     - name: Upload coverage reports to Codecov
-  #       uses: codecov/codecov-action@v4.0.1
-  #       with:
-  #         token: ${{ secrets.CODECOV_TOKEN }}
-  #         slug: DataDog/kong-plugin-ddtrace
-  #
-  package:
+  format:
     runs-on: ubuntu-22.04
-    # needs: [format, run-test]
+    container: "datadog/docker-library:kong-plugin-ddtrace-ci"
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+      - name: "Lint"
+        run: stylua --check kong/ spec/
+      - name: "Static analysis"
+        run: luacheck kong spec
+
+  run-test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+      - uses: Kong/kong-pongo-action@v1
+        with:
+          kong_version: stable
+          pongo_version: latest
+      - run: pongo run --no-datadog-agent --no-postgres --no-cassandra -- --coverage
+      - name: Publish code coverage summary
+        run: |
+          beg=$( grep -n "Summary" < luacov.report.out | cut -d ':' -f1 )
+          tail --lines=+${beg} luacov.report.out >> $GITHUB_STEP_SUMMARY
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v4.0.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: DataDog/kong-plugin-ddtrace
+
+  package:
+    runs-on: ubuntu-22.04
+    needs: [format, run-test]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
       - name: Install Python
         uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 #v5.0.5
       - uses: leafo/gh-actions-lua@8aace3457a2fcf3f3c4e9007ecc6b869ff6d74d6 #v11
@@ -82,38 +84,38 @@ jobs:
           KONG_PLUGINS: bundled,ddtrace
         run: kong start
 
-  # publish-release-candidate:
-  #   runs-on: ubuntu-22.04
-  #   needs: package
-  #   permissions:
-  #     contents: write
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #     - name: Generate pre-release metadata
-  #       run: |
-  #         {
-  #           echo "\`Commit SHA: ${GITHUB_SHA}\`"
-  #           echo ""
-  #           echo "> [!WARNING]"
-  #           echo "> **This is a pre-release build** based on the latest development."
-  #           echo "> It may introduce breaking changes, unexpected behavior, and other issues. We recommend using it only in non-critical environments."
-  #           echo ""
-  #           echo "## Install"
-  #           echo "1. Download the rock."
-  #           echo "2. Install it using luarock: \`luarock install <ROCK>.src.rock\`"
-  #         } >> $RUNNER_TEMP/notes.md
-  #     - name: Update tip tag
-  #       run: git push origin :tip || true
-      # - name: Download a single artifact
-      #   uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e #v4.2.1
-      #   with:
-      #     name: kong-ddtrace-artifact
-  #     - name: Create or Update Release
-  #       env:
-  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #       run: |
-  #         gh release delete tip --yes || true
-  #         gh release create tip --title "Development (pre-release) build" \
-  #         --prerelease \
-  #         --notes-file "$RUNNER_TEMP/notes.md" \
-  #         --target $GITHUB_SHA kong-plugin-ddtrace*.rock
+  publish-release-candidate:
+    runs-on: ubuntu-22.04
+    needs: package
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+      - name: Download a single artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e #v4.2.1
+        with:
+          name: kong-ddtrace-artifact
+      - name: Generate pre-release metadata
+        run: |
+          {
+            echo "\`Commit SHA: ${GITHUB_SHA}\`"
+            echo ""
+            echo "> [!WARNING]"
+            echo "> **This is a pre-release build** based on the latest development."
+            echo "> It may introduce breaking changes, unexpected behavior, and other issues. We recommend using it only in non-critical environments."
+            echo ""
+            echo "## Install"
+            echo "1. Download the rock."
+            echo "2. Install it using luarock: \`luarock install <ROCK>.src.rock\`"
+          } >> $RUNNER_TEMP/notes.md
+      - name: Update tip tag
+        run: git push origin :tip || true
+      - name: Create or Update Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete tip --yes || true
+          gh release create tip --title "Development (pre-release) build" \
+          --prerelease \
+          --notes-file "$RUNNER_TEMP/notes.md" \
+          --target $GITHUB_SHA kong-plugin-ddtrace*.rock
