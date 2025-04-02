@@ -37,12 +37,13 @@ jobs:
   #
   package:
     runs-on: ubuntu-22.04
-    needs: [format, run-test]
+    # needs: [format, run-test]
     steps:
       - uses: actions/checkout@v3
       - name: Install Python
         uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 #v5.0.5
       - name: Generate version
+        run: |
           ORIGINAL_VERSION="$(grep 'VERSION' kong/plugins/ddtrace/handler.lua | awk -F '"' '{print $2;exit}')"
           echo "PLUGIN_VERSION=${ORIGINAL_VERSION}.rc.${GITHUB_SHA::7}" >> $GITHUB_ENV
       - name: Update plugin handler version
@@ -102,7 +103,6 @@ jobs:
   #           echo "1. Download the rock."
   #           echo "2. Install it using luarock: \`luarock install <ROCK>.src.rock\`"
   #         } >> $RUNNER_TEMP/notes.md
-  #
   #     - name: Update tip tag
   #       run: git push origin :tip || true
   #     - name: Create or Update Release
