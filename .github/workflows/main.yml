@@ -42,6 +42,8 @@ jobs:
       - uses: actions/checkout@v3
       - name: Install Python
         uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 #v5.0.5
+      - uses: leafo/gh-actions-lua@8aace3457a2fcf3f3c4e9007ecc6b869ff6d74d6 #v11
+      - uses: leafo/gh-actions-luarocks@4c082a5fad45388feaeb0798dbd82dbd7dc65bca #v5
       - name: Generate version
         run: |
           ORIGINAL_VERSION="$(grep 'VERSION' kong/plugins/ddtrace/handler.lua | awk -F '"' '{print $2;exit}')"
@@ -80,7 +82,6 @@ jobs:
           KONG_PLUGINS: bundled,ddtrace
         run: kong start
 
-
   # publish-release-candidate:
   #   runs-on: ubuntu-22.04
   #   needs: package
@@ -88,8 +89,6 @@ jobs:
   #     contents: write
   #   steps:
   #     - uses: actions/checkout@v3
-  #     - uses: leafo/gh-actions-lua@8aace3457a2fcf3f3c4e9007ecc6b869ff6d74d6 #v11
-  #     - uses: leafo/gh-actions-luarocks@4c082a5fad45388feaeb0798dbd82dbd7dc65bca #v5
   #     - name: Generate pre-release metadata
   #       run: |
   #         {
@@ -105,6 +104,10 @@ jobs:
   #         } >> $RUNNER_TEMP/notes.md
   #     - name: Update tip tag
   #       run: git push origin :tip || true
+      # - name: Download a single artifact
+      #   uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e #v4.2.1
+      #   with:
+      #     name: kong-ddtrace-artifact
   #     - name: Create or Update Release
   #       env:
   #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -113,4 +116,4 @@ jobs:
   #         gh release create tip --title "Development (pre-release) build" \
   #         --prerelease \
   #         --notes-file "$RUNNER_TEMP/notes.md" \
-  #         --target $GITHUB_SHA $RUNNER_TEMP/kong-plugin-ddtrace*.rock
+  #         --target $GITHUB_SHA kong-plugin-ddtrace*.rock
