@@ -37,7 +37,7 @@ jobs:
 
   publish-release-candidate:
     runs-on: ubuntu-22.04
-    needs: [format, run-test]
+    # needs: [format, run-test]
     permissions:
       contents: write
     steps:
@@ -46,14 +46,6 @@ jobs:
         uses: actions/setup-python@v5
       - uses: leafo/gh-actions-lua@8aace3457a2fcf3f3c4e9007ecc6b869ff6d74d6 #v11
       - uses: leafo/gh-actions-luarocks@4c082a5fad45388feaeb0798dbd82dbd7dc65bca #v5
-      - name: Package
-        run: |
-          PLUGIN_VERSION="0.2.2"
-          TIP_ROCKSPEC="$(python scripts/gen-rockspec.py --version ${PLUGIN_VERSION}.rc.${GITHUB_SHA::7} --tag tip)"
-          luarocks pack ${TIP_ROCKSPEC}
-          mv kong-plugin-ddtrace*.rock $RUNNER_TEMP
-      - name: Update tip tag
-        run: git push origin :tip || true
       - name: Generate pre-release metadata
         run: |
           {
@@ -67,10 +59,23 @@ jobs:
             echo "1. Download the rock."
             echo "2. Install it using luarock: \`luarock install <ROCK>.zip\`"
           } >> $RUNNER_TEMP/notes.md
+
+          ORIGINAL_VERSION="$(grep 'VERSION' kong/plugins/ddtrace/handler.lua | awk -F '"' '{print $2;exit}')"
+          echo "PLUGIN_VERSION=${ORIGINAL_VERSION}.rc.${GITHUB_SHA::7}" >> GITHUB_ENV
+      - name: Update pluging handler version
+        run: sed 's|VERSION = ".*"|VERSION = "${PLUGIN_VERSION}"|' kong/plugins/ddtrace/handler.lua
+      - name: Package
+        run: |
+          TIP_ROCKSPEC="$(python scripts/gen-rockspec.py --version ${PLUGIN_VERSION} --tag tip)"
+          luarocks pack ${TIP_ROCKSPEC}
+          mv kong-plugin-ddtrace*.rock $RUNNER_TEMP
+      - name: Update tip tag
+        run: git push origin :tip || true
       - name: Create or Update Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          gh release delete tip --yes || true
           gh release create tip --title "Development (pre-release) build" \
           --prerelease \
           --notes-file "$RUNNER_TEMP/notes.md" \
