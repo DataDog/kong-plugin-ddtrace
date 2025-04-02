@@ -37,7 +37,7 @@ jobs:
 
   publish-release-candidate:
     runs-on: ubuntu-22.04
-    # needs: [format, run-test]
+    needs: [format, run-test]
     permissions:
       contents: write
     steps:
@@ -57,11 +57,11 @@ jobs:
             echo ""
             echo "## Install"
             echo "1. Download the rock."
-            echo "2. Install it using luarock: \`luarock install <ROCK>.zip\`"
+            echo "2. Install it using luarock: \`luarock install <ROCK>.src.rock\`"
           } >> $RUNNER_TEMP/notes.md
 
           ORIGINAL_VERSION="$(grep 'VERSION' kong/plugins/ddtrace/handler.lua | awk -F '"' '{print $2;exit}')"
-          echo "PLUGIN_VERSION=${ORIGINAL_VERSION}.rc.${GITHUB_SHA::7}" >> GITHUB_ENV
+          echo "PLUGIN_VERSION=${ORIGINAL_VERSION}.rc.${GITHUB_SHA::7}" >> $GITHUB_ENV
       - name: Update pluging handler version
         run: sed -i "s|VERSION = \".*\"|VERSION = \"${PLUGIN_VERSION}\"|" kong/plugins/ddtrace/handler.lua
       - name: Package
