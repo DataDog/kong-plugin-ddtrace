@@ -1,0 +1,38 @@
+name: Pull Request
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - '!main'
+    tags:
+      - '!tips'
+
+jobs:
+  format:
+    runs-on: ubuntu-22.04
+    container: "datadog/docker-library:kong-plugin-ddtrace-ci"
+    steps:
+      - uses: actions/checkout@v3
+      - name: "Lint"
+        run: stylua --check kong/ spec/
+      - name: "Static analysis"
+        run: luacheck kong spec
+
+  run-test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: Kong/kong-pongo-action@v1
+        with:
+          kong_version: stable
+          pongo_version: latest
+      - run: pongo run --no-datadog-agent --no-postgres --no-cassandra -- --coverage
+      - name: Publish code coverage summary
+        run: |
+          beg=$( grep -n "Summary" < luacov.report.out | cut -d ':' -f1 )
+          tail --lines=+${beg} luacov.report.out >> $GITHUB_STEP_SUMMARY
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v4.0.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: DataDog/kong-plugin-ddtrace
