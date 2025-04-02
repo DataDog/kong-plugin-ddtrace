@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-22.04
     container: "datadog/docker-library:kong-plugin-ddtrace-ci"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 #v3.6.0
       - name: "Lint"
         run: stylua --check kong/ spec/
       - name: "Static analysis"
@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
-      - uses: Kong/kong-pongo-action@v1
+      - uses: Kong/kong-pongo-action@5972effad7a566aed12b879b559bbff07d258d51 #v1.0.3
         with:
           kong_version: stable
           pongo_version: latest
@@ -32,7 +32,7 @@ jobs:
           beg=$( grep -n "Summary" < luacov.report.out | cut -d ':' -f1 )
           tail --lines=+${beg} luacov.report.out >> $GITHUB_STEP_SUMMARY
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v4.0.1
+        uses: codecov/codecov-action@e0b68c6749509c5f83f984dd99a76a1c1a231044 #v4.0.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: DataDog/kong-plugin-ddtrace
