@@ -76,7 +76,7 @@ describe("trace propagation", function()
 
             local span = multi_propagator:extract_or_create_span(request, default_span_opts)
 
-            local expected_trace_id = { high = nil, low = 12345678901234567890ULL }
+            local expected_trace_id = { high = 0, low = 12345678901234567890ULL }
             local expected_parent_id = 9876543210987654321ULL
             assert.same(expected_trace_id, span.trace_id)
             assert.same(expected_parent_id, span.parent_id)

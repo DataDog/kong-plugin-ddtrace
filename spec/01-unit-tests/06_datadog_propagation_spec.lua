@@ -44,7 +44,7 @@ describe("trace propagation", function()
             assert.is_nil(err)
             assert.is_not_nil(extracted)
 
-            local expected_trace_id = { high = nil, low = 12345678901234567890ULL }
+            local expected_trace_id = { high = 0, low = 12345678901234567890ULL }
             assert.same(expected_trace_id, extracted.trace_id)
             assert.equal(9876543210987654321ULL, extracted.parent_id)
             assert.equal(1, extracted.sampling_priority)
