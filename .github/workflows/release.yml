@@ -1,0 +1,82 @@
+name: Release
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  package:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+      - name: Install Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 #v5.0.5
+      - uses: leafo/gh-actions-lua@8aace3457a2fcf3f3c4e9007ecc6b869ff6d74d6 #v11
+      - uses: leafo/gh-actions-luarocks@4c082a5fad45388feaeb0798dbd82dbd7dc65bca #v5
+      - name: Retrieve version
+        run: |
+          HANDLER_VERSION="$(grep 'VERSION' kong/plugins/ddtrace/handler.lua | awk -F '"' '{print $2;exit}')"
+          echo "PLUGIN_VERSION=${HANDLER_VERSION}" >> $GITHUB_ENV
+      - name: Ensure tag match the version
+        run: |
+          if [[ "v${PLUGIN_VERSION}" != "$GITHUB_REF_NAME" ]]; then
+            echo "version mismatch: ${PLUGIN_VERSION} != ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+      - name: Package
+        run: |
+          TIP_ROCKSPEC="$(python scripts/gen-rockspec.py --version ${PLUGIN_VERSION} --tag ${GITHUB_REF_NAME})"
+          luarocks pack ${TIP_ROCKSPEC}
+      - name: Export package
+        uses:  actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
+        with:
+          name: kong-ddtrace-artifact
+          path: kong-plugin-ddtrace*.rock kong-plugin-ddtrace*.rockspec
+          if-no-files-found: error
+
+  test-package:
+    runs-on: ubuntu-22.04
+    needs: package
+    container:
+      image: "kong/kong-gateway:3.5.0.0-ubuntu"
+      options: --user root
+    steps:
+      - name: Install dependencies
+        run: apt update -y && apt install -y zip
+      - name: Download a single artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e #v4.2.1
+        with:
+          name: kong-ddtrace-artifact
+      - name: Install plugin
+        run: luarocks install kong-plugin-ddtrace*.rock
+      - name: Start Kong
+        env:
+          KONG_DATABASE: off
+          KONG_PLUGINS: bundled,ddtrace
+        run: kong start
+
+  publish-release:
+    runs-on: ubuntu-22.04
+    needs: test-package
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+      - name: Download rock
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e #v4.2.1
+        with:
+          name: kong-ddtrace-artifact
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${GITHUB_REF_NAME} --generate-notes \
+          --target $GITHUB_SHA kong-plugin-ddtrace*.rock
+          --verify-tag
+      - name: Publish to Luarocks
+        run: luarocks upload kong-plugin-ddtrace*.rockspec kong-plugin-ddtrace*.rock \
+              --temp-key ${{ secrets.LUAROCKS_KEY }} \
+              --sign \
+              --skip-pack
+
