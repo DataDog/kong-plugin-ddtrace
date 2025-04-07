@@ -81,8 +81,8 @@ local function extract(get_header, _)
         return nil, "0 is an invalid parent ID"
     end
 
-    local high = nil
-    local low = nil
+    local high
+    local low
 
     high, err = parse_uint64(string.sub(hex_trace_id, 1, 16), 16)
     if err then
