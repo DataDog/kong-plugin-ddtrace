@@ -56,7 +56,6 @@ local function extract_datadog(get_header, max_header_size)
     end
 
     -- other headers are expected but aren't provided in all cases
-    local trace_id = { high = nil, low = trace_id_low }
     local parent_id = parse_uint64(get_header("x-datadog-parent-id"), 10)
     local sampling_priority = tonumber(get_header("x-datadog-sampling-priority"))
     local origin = get_header("x-datadog-origin")
@@ -74,24 +73,25 @@ local function extract_datadog(get_header, max_header_size)
         end
     end
 
+    local trace_id_high = 0
     local tid = dd_tags["_dd.p.tid"]
     if tid then
         if #tid ~= 16 then
             dd_tags["_dd.propagation_error"] = "malformed_tid " .. tid
             dd_tags["_dd.p.tid"] = nil
         else
-            local trace_id_high, err = parse_uint64(tid, 16)
+            local high, err = parse_uint64(tid, 16)
             if err then
                 dd_tags["_dd.propagation_error"] = "malformed_tid " .. tid
                 dd_tags["_dd.p.tid"] = nil
             else
-                trace_id.high = trace_id_high
+                trace_id_high = high
             end
         end
     end
 
     return {
-        trace_id = trace_id,
+        trace_id = { high = trace_id_high, low = trace_id_low },
         parent_id = parent_id,
         sampling_priority = sampling_priority,
         origin = origin,

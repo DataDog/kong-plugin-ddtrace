@@ -81,14 +81,15 @@ local function extract(get_header, _)
         return nil, "0 is an invalid parent ID"
     end
 
-    local trace_id = { high = 0, low = 0 }
+    local high
+    local low
 
-    trace_id.high, err = parse_uint64(string.sub(hex_trace_id, 1, 16), 16)
+    high, err = parse_uint64(string.sub(hex_trace_id, 1, 16), 16)
     if err then
         return nil, "failed to parse trace ID: " .. err
     end
 
-    trace_id.low, err = parse_uint64(string.sub(hex_trace_id, 17, 32), 16)
+    low, err = parse_uint64(string.sub(hex_trace_id, 17, 32), 16)
     if err then
         return nil, "failed to parse trace ID: " .. err
     end
@@ -137,7 +138,7 @@ local function extract(get_header, _)
     end
 
     return {
-        trace_id = trace_id,
+        trace_id = { high = high, low = low },
         parent_id = parent_id,
         sampling_priority = sampling_priority,
         origin = dd_state["origin"],

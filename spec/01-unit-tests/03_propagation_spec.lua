@@ -1,9 +1,12 @@
 local new_span = require("kong.plugins.ddtrace.span").new
 local new_propagator = require("kong.plugins.ddtrace.propagation").new
 
+local last_warning
 _G.kong = {
     log = {
-        warn = function() end,
+        warn = function(msg)
+            last_warning = msg
+        end,
     },
 }
 
@@ -76,10 +79,44 @@ describe("trace propagation", function()
 
             local span = multi_propagator:extract_or_create_span(request, default_span_opts)
 
-            local expected_trace_id = { high = nil, low = 12345678901234567890ULL }
+            local expected_trace_id = { high = 0, low = 12345678901234567890ULL }
             local expected_parent_id = 9876543210987654321ULL
             assert.same(expected_trace_id, span.trace_id)
             assert.same(expected_parent_id, span.parent_id)
+        end)
+
+        it("64-bit and 128-bit match", function()
+            local datadog_first = { "datadog", "tracecontext" }
+            local multi_propagator = new_propagator(datadog_first, datadog_first, default_max_header_size)
+            local request = {
+                get_header = make_getter({
+                    traceparent = "00-0000000000000000a3ce929d0e0e4736-00f067aa0ba902b7-01",
+                    tracestate = "fizz=buzz:fizzbuzz,dd=s:2;o:rum;p:00f067aa0ba902b7;t.dm:-5",
+                    ["x-datadog-trace-id"] = "11803532876627986230",
+                    ["x-datadog-parent-id"] = "67667974448284343",
+                }),
+            }
+
+            last_warning = nil
+            local _ = multi_propagator:extract_or_create_span(request, default_span_opts)
+            assert.is_nil(last_warning)
+        end)
+
+        it("mismatch trace ID log a warning", function()
+            local datadog_first = { "datadog", "tracecontext" }
+            local multi_propagator = new_propagator(datadog_first, datadog_first, default_max_header_size)
+            local request = {
+                get_header = make_getter({
+                    traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+                    tracestate = "fizz=buzz:fizzbuzz,dd=s:2;o:rum;p:00f067aa0ba902b7;t.dm:-5",
+                    ["x-datadog-trace-id"] = "12345678901234567890",
+                    ["x-datadog-parent-id"] = "9876543210987654321",
+                }),
+            }
+
+            last_warning = nil
+            local _ = multi_propagator:extract_or_create_span(request, default_span_opts)
+            assert.is_not_nil(last_warning)
         end)
     end)
 
