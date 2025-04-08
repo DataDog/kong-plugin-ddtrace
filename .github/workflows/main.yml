@@ -107,7 +107,7 @@ jobs:
             echo "1. Download the rock."
             echo "2. Install it using luarock: \`luarock install <ROCK>.src.rock\`"
             echo ""
-            echo "**Full Changelog**: https://github.com/DataDog/kong-plugin-ddtrace/compare/v{LATEST_RELEASE}...${GITHUB_SHA}"
+            echo "**Full Changelog**: https://github.com/DataDog/kong-plugin-ddtrace/compare/v${LATEST_RELEASE}...${GITHUB_SHA}"
           } >> $RUNNER_TEMP/notes.md
       - name: Update tip tag
         run: git push origin :tip || true
