@@ -95,6 +95,7 @@ jobs:
           name: kong-ddtrace-artifact
       - name: Generate pre-release metadata
         run: |
+          LATEST_RELEASE="$(gh release view | head -n 1 | cut -d'v' -f2)"
           {
             echo "\`Commit SHA: ${GITHUB_SHA}\`"
             echo ""
@@ -105,6 +106,8 @@ jobs:
             echo "## Install"
             echo "1. Download the rock."
             echo "2. Install it using luarock: \`luarock install <ROCK>.src.rock\`"
+            echo ""
+            echo "**Full Changelog**: https://github.com/DataDog/kong-plugin-ddtrace/compare/v${LATEST_RELEASE}...${GITHUB_SHA}"
           } >> $RUNNER_TEMP/notes.md
       - name: Update tip tag
         run: git push origin :tip || true

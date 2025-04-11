@@ -14,7 +14,7 @@ This plugin enables detailed tracing of requests passing through Kong, providing
 ## Getting Started
 
 > [!IMPORTANT]
-> This plugin is compatible with Kong Gateway `v3.5+`.
+> This plugin is compatible with Kong Gateway `v3.4` LTS (>= `v3.4.3.5`) or newer.
 > For older version of Kong, please use [v0.2.2](https://github.com/DataDog/kong-plugin-ddtrace/releases/tag/v0.2.2) or older versions.
 
 ### Prerequisites
