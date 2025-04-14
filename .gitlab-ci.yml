@@ -1,0 +1,13 @@
+stages:
+  - benchmarks
+
+macrobenchmarks:
+  stage: benchmarks
+  needs: []
+  trigger:
+    include: .gitlab/macrobenchmarks.yml
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: always
+    - when: manual
