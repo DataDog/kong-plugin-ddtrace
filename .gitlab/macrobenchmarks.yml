@@ -2,7 +2,7 @@ stages:
   - test
 
 variables:
-  MACROBENCHMARKS_CI_IMAGE: 486234852809.dkr.ecr.us-east-1.amazonaws.com/ci/benchmarking-platform:kong-gateway
+  MACROBENCHMARKS_CI_IMAGE: registry.ddbuild.io/ci/benchmarking-platform:kong-gateway
 
 .macrobenchmarks:
   stage: test
@@ -20,6 +20,7 @@ variables:
   when: on_success
   image: $MACROBENCHMARKS_CI_IMAGE
   script: |
+    aws sts get-caller-identity
     git clone --branch kong https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.ddbuild.io/DataDog/benchmarking-platform platform && cd platform
     bp-runner bp-runner.yml --debug
   artifacts:
