@@ -7,7 +7,7 @@ variables:
 .macrobenchmarks:
   stage: macrobenchmarks
   needs: []
-  tags: ["runner:apm-k8s-same-cpu"]
+  tags: ["runner:apm-k8s-tweaked-metal"]
   timeout: 1h
   # retry:
   #   max: 2
