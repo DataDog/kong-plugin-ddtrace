@@ -26,7 +26,10 @@ jobs:
           fi
       - name: Package
         run: |
-          TIP_ROCKSPEC="$(python scripts/gen-rockspec.py --version ${PLUGIN_VERSION} --tag ${GITHUB_REF_NAME:1})"
+          TIP_ROCKSPEC="$(python scripts/gen-rockspec.py --version ${PLUGIN_VERSION} --tag ${GITHUB_REF_NAME})"
+          # github.com/.../archive/v0.2.3 download kong-plugin-ddtrace-0.2.3 without the `v` of course.
+          # Let's fix that:
+          sed -i "s|dir = \"kong-plugin-ddtrace-${GITHUB_REF_NAME}\"|dir = \"kong-plugin-ddtrace-${GITHUB_REF_NAME:1}\"|" ${TIP_ROCKSPEC}
           luarocks pack ${TIP_ROCKSPEC}
       - name: Export package
         uses:  actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
