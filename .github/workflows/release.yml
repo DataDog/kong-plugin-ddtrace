@@ -26,7 +26,7 @@ jobs:
           fi
       - name: Package
         run: |
-          TIP_ROCKSPEC="$(python scripts/gen-rockspec.py --version ${PLUGIN_VERSION} --tag ${GITHUB_REF_NAME})"
+          TIP_ROCKSPEC="$(python scripts/gen-rockspec.py --version ${PLUGIN_VERSION} --tag v${GITHUB_REF_NAME})"
           luarocks pack ${TIP_ROCKSPEC}
       - name: Export package
         uses:  actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
