@@ -271,13 +271,13 @@ local function access(conf)
     ctx.proxy_span = proxy_span
 end
 
-local function response(_)
+local function header_filter(_)
     local now = time_ns() * 1LL
     local ngx_ctx = ngx.ctx
 
     local ctx = kong.ctx.plugin
     if ctx.proxy_span == nil then
-        error("proxy span missing during the response phase")
+        error('proxy span missing during the "header_filter" phase')
     end
 
     local span = ctx.proxy_span
@@ -389,12 +389,12 @@ function DatadogTraceHandler:access(conf)
     end
 end
 
-function DatadogTraceHandler:response(conf)
+function DatadogTraceHandler:header_filter(conf)
     if subsystem ~= "http" then
         return
     end
 
-    local ok, message = pcall(response, conf)
+    local ok, message = pcall(header_filter, conf)
     if not ok then
         kong.log.err("tracing error in DatadogTraceHandler:response: ", message)
     end
