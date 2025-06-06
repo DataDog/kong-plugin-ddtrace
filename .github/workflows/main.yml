@@ -24,6 +24,7 @@ jobs:
         with:
           kong_version: stable
           pongo_version: latest
+          build_image: false
       - run: pongo run --no-datadog-agent --no-postgres --no-cassandra -- --coverage
       - name: Publish code coverage summary
         run: |
