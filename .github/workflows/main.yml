@@ -22,9 +22,8 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
       - uses: Kong/kong-pongo-action@5972effad7a566aed12b879b559bbff07d258d51 #v1.0.3
         with:
-          kong_version: stable
+          kong_version: 3.8.0
           pongo_version: latest
-          build_image: false
       - run: pongo run --no-datadog-agent --no-postgres --no-cassandra -- --coverage
       - name: Publish code coverage summary
         run: |
