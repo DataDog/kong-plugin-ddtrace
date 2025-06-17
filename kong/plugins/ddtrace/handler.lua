@@ -68,8 +68,8 @@ local function expose_tracing_variables(span)
     kong_shared.datadog_sdk_span_id = span_id
 
     -- Set nginx variables
-    nginx.ctx.datadog_trace_id = trace_id
-    nginx.ctx.datadog_span_id = span_id
+    ngx.ctx.datadog_trace_id = trace_id
+    ngx.ctx.datadog_span_id = span_id
 end
 
 -- apply resource_name_rules to the provided URI
