@@ -1,5 +1,5 @@
-Contributing to kong-plugin-ddtrace
-===================================
+# Contributing to kong-plugin-ddtrace
+
 Pull requests for bug fixes are welcome.
 
 Before submitting new features or changes to current functionality, [open an
@@ -24,6 +24,7 @@ pongo shell
 ```
 
 Inside the shell:
+
 ```bash
 # This migration step is only required the first time after running `pongo up`
 kong migrations bootstrap

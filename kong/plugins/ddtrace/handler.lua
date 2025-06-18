@@ -13,7 +13,7 @@ local regex = ngx.re
 local subsystem = ngx.config.subsystem
 
 local DatadogTraceHandler = {
-    VERSION = "0.2.3",
+    VERSION = "0.2.4",
     -- We want to run first so that timestamps taken are at start of the phase.
     -- However, it might be useful to finish spans after other plugins have completed
     -- to more accurately represent the request completion time.
@@ -68,8 +68,8 @@ local function expose_tracing_variables(span)
     kong_shared.datadog_sdk_span_id = span_id
 
     -- Set nginx variables
-    ngx.ctx.datadog_trace_id = trace_id
-    ngx.ctx.datadog_span_id = span_id
+    ngx.var.datadog_trace_id = trace_id
+    ngx.var.datadog_span_id = span_id
 end
 
 -- apply resource_name_rules to the provided URI
