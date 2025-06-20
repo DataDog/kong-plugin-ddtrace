@@ -146,10 +146,10 @@ local function configure(conf)
 
     ddtrace_conf = {
         __id__ = conf["__seq__"],
-        service = DD_SERVICE or conf.service_name or "kong",
-        environment = DD_ENV or conf.environment,
-        version = DD_VERSION or conf.version,
-        agent_url = DD_AGENT_URL or conf.trace_agent_url or agent_url,
+        service = conf.service_name or DD_SERVICE or "kong",
+        environment = conf.environment or DD_ENV,
+        version = conf.version or DD_VERSION,
+        agent_url = conf.trace_agent_url or DD_AGENT_URL or agent_url,
         injection_propagation_styles = conf.injection_propagation_styles,
         extraction_propagation_styles = conf.extraction_propagation_styles,
     }
