@@ -146,10 +146,10 @@ local function configure(conf)
 
     ddtrace_conf = {
         __id__ = conf["__seq__"],
-        service = conf.service_name or DD_SERVICE or "kong",
-        environment = conf.environment or DD_ENV,
-        version = conf.version or DD_VERSION,
-        agent_url = conf.trace_agent_url or DD_AGENT_URL or agent_url,
+        service = DD_SERVICE or conf.service_name or "kong",
+        environment = DD_ENV or conf.environment,
+        version = DD_VERSION or conf.version,
+        agent_url = DD_AGENT_URL or conf.trace_agent_url or agent_url,
         injection_propagation_styles = conf.injection_propagation_styles,
         extraction_propagation_styles = conf.extraction_propagation_styles,
     }
@@ -182,7 +182,7 @@ local function make_root_span(conf, start_timestamp)
     local path = req.get_path()
 
     local span_options = {
-        service = ddtrace_conf.service,
+        service = conf.service_name or ddtrace_conf.service,
         name = "kong.request",
         start_us = start_timestamp,
         -- TODO: decrease cardinality of path value
