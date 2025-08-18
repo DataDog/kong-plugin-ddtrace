@@ -12,3 +12,5 @@ luacov.report.out
 # exclude Pongo containerid file
 .containerid
 .DS_Store
+# exclude LuaCov html report
+luacov.report.html

@@ -1,0 +1,43 @@
+services:
+  # `agent` is the Datadog Agent to which traces are sent.
+  # `agent` needs an API key set in the environment as the
+  # `DD_API_KEY` environment variable.
+  datadog-agent:
+    image: 'datadog/agent'
+    labels:
+      com.datadoghq.ad.logs: '[{"type": "file", "source": "kong", "service": "nginx-log-injection-example-service", "path": "/shared/log-tracing.log"}]'
+    ports:
+      - 8126:8126
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock:ro'
+      - '/proc/:/host/proc/:ro'
+      - '/sys/fs/cgroup/:/host/sys/fs/cgroup:ro'
+      - shared-volume:/shared:ro
+    environment:
+      - DD_SITE
+      - DD_API_KEY
+      - DD_APM_ENABLED=true
+      - DD_LOGS_ENABLED=true
+      - DD_LOG_LEVEL=ERROR
+
+  kong-dbless:
+    image: 'kong/kong-gateway:3.10'
+    user: root
+    links:
+      - datadog-agent
+    volumes:
+      - ./kong.yaml:/kong/declarative/kong.yaml
+      - ../../kong:/tmp/custom_plugins/kong
+      - ./kong_configs/kong.conf:/etc/kong/kong.conf
+      - ./kong_configs/server_vars.kong.conf:/etc/kong/server_vars.kong.conf
+      - ./kong_configs/log-format.conf:/etc/kong/log-format.conf
+      - ./kong_configs/nginx-custom.conf:/usr/local/kong/nginx-custom.conf
+      - shared-volume:/shared
+    ports:
+      - 8000:8000
+      - 8001:8001
+      - 8002:8002
+    command: kong docker-start -c /etc/kong/kong.conf
+
+volumes:
+  shared-volume:

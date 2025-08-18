@@ -1,0 +1,15 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+- name: service-a
+  url: http://httpbin.org/headers
+  plugins:
+    - name: ddtrace
+      config:
+        agent_host: datadog-agent
+        service_name: log-correlation-example-service
+  routes:
+  - name: my-route-a
+    paths:
+    - /foo
