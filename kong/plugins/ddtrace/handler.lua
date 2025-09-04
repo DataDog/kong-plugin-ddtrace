@@ -336,6 +336,13 @@ local function header_filter(_)
         span:set_tag("kong.route", "none")
     end
 
+    local status_code = kong.response.get_status()
+    span:set_tag("http.status_code", status_code)
+    if status_code >= 500 then
+        span:set_tag("error", true)
+        span.error = status_code
+    end
+
     span:finish(now)
 end
 
@@ -350,13 +357,6 @@ local function log(conf)
 
     local request_span = ctx.request_span
     local agent_writer = get_agent_writer(conf, ddtrace_conf.agent_url)
-
-    local status_code = kong.response.get_status()
-    request_span:set_tag("http.status_code", status_code)
-    if status_code >= 500 then
-        request_span:set_tag("error", true)
-        request_span.error = status_code
-    end
 
     if header_tags then
         request_span:set_http_header_tags(header_tags, kong.request.get_header, kong.response.get_header)
