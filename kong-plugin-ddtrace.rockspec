@@ -3,7 +3,7 @@ version = "$version-$revision"
 
 source = {
     url = "https://github.com/datadog/kong-plugin-ddtrace/archive/$tag.zip",
-    dir = "kong-plugin-ddtrace-$tag",
+    dir = "kong-plugin-ddtrace-$version",
 }
 
 description = {
