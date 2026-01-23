@@ -1,8 +1,12 @@
+ngx.log(ngx.NOTICE, "DEBUG: handler.lua module loading")
 local ddtrace = require("kong.plugins.ddtrace.ddtrace")
+ngx.log(ngx.NOTICE, "DEBUG: ddtrace module loaded")
 local utils = require("kong.plugins.ddtrace.utils")
+ngx.log(ngx.NOTICE, "DEBUG: utils module loaded")
 
 local pcall = pcall
 local subsystem = ngx.config.subsystem
+ngx.log(ngx.NOTICE, "DEBUG: handler.lua module loaded successfully")
 local fmt = string.format
 local strsub = string.sub
 local regex = ngx.re
@@ -146,13 +150,20 @@ local function build_agent_url(conf)
     -- - use trace_agent_url if set
     -- - use agent_host:agent_port if agent_host is set
     -- - use agent_endpoint if set but warn that it is deprecated
-    -- - if nothing is set, default to http://localhost:8126/v0.4/traces
-    if conf.trace_agent_url then
+    -- - if nothing is set, default to http://localhost:8126
+    
+    -- Helper to check for non-empty values
+    local function is_set(value)
+      return value ~= nil and value ~= ""
+    end
+    
+    if is_set(conf.trace_agent_url) then
+      kong.log.notice("Using trace_agent_url: " .. conf.trace_agent_url)
       return conf.trace_agent_url
     end
 
-    local host = conf.agent_host or "localhost"
-    local port = conf.trace_agent_port or "8126"
+    local host = is_set(conf.agent_host) and conf.agent_host or "localhost"
+    local port = is_set(conf.trace_agent_port) and conf.trace_agent_port or "8126"
     local agent_url = string.format("http://%s:%s", host, port)
     kong.log.notice("traces will be sent to the agent at " .. agent_url)
     return agent_url
@@ -160,22 +171,54 @@ end
 
 if subsystem == "http" then
     initialize_request = function(conf, ctx)
+        kong.log.notice("DEBUG: initialize_request starting")
+        -- Check environment variables
+        kong.log.notice("DEBUG: DD_SERVICE env = " .. tostring(os.getenv("DD_SERVICE")))
+        kong.log.notice("DEBUG: DD_ENV env = " .. tostring(os.getenv("DD_ENV")))
+        kong.log.notice("DEBUG: DD_VERSION env = " .. tostring(os.getenv("DD_VERSION")))
+        kong.log.notice("DEBUG: DD_TRACE_AGENT_URL env = " .. tostring(os.getenv("DD_TRACE_AGENT_URL")))
+        
         -- TODO: Support Kong 3.5.x `plugin:configure`
         if not tracer then
+          kong.log.notice("DEBUG: Creating tracer")
+          kong.log.notice("DEBUG: conf.service_name = " .. tostring(conf and conf.service_name))
+          
+          -- Helper function to get non-empty value or default
+          local function get_value_or_default(value, default)
+            if value == nil or value == "" then
+              return default
+            end
+            return value
+          end
+          
           local config = {
-            ["service"] = conf and conf.service_name or "kong"
+            ["service"] = get_value_or_default(conf and conf.service_name, "kong")
           }
-          if conf.environment then
-              config.env = conf.environment
+          kong.log.notice("DEBUG: config.service = " .. tostring(config.service))
+          
+          local env_value = get_value_or_default(conf and conf.environment, nil)
+          if env_value then
+              config.env = env_value
           end
-          if conf.version then
-              config.version = conf.version
+          
+          local version_value = get_value_or_default(conf and conf.version, nil)
+          if version_value then
+              config.version = version_value
           end
-          if conf.trace_agent_url or conf.agent_host or conf.agent_endpoint then
-              config.agent_url = build_agent_url(conf)
+          
+          -- Always set agent URL (will use defaults if not configured)
+          local agent_url = build_agent_url(conf)
+          if agent_url and agent_url ~= "" then
+            config.agent_url = agent_url
+            kong.log.notice("DEBUG: config.agent_url = " .. agent_url)
           end
 
           tracer = ddtrace.make_tracer(config)
+          kong.log.notice("DEBUG: Tracer created, tracer=" .. tostring(tracer))
+          if tracer == nil then
+              kong.log.err("Failed to create tracer - check configuration and that libddtrace.so is properly loaded")
+              error("Failed to create tracer")
+          end
         end
 
         if not header_tags and (conf and conf.header_tags) then
@@ -197,7 +240,19 @@ if subsystem == "http" then
             resource = method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule)
         }
 
-        local request_span = tracer:extract_or_create_span(header_extractor, span_options)
+        kong.log.notice("DEBUG: About to extract_or_create_span")
+        kong.log.notice("DEBUG: span name = " .. tostring(span_options.name))
+        -- Temporarily bypass header extraction to test
+        local ok, result = pcall(function()
+            return tracer:create_span(span_options.name)
+        end)
+        kong.log.notice("DEBUG: create_span pcall returned ok=" .. tostring(ok) .. ", result=" .. tostring(result))
+        if not ok then
+            kong.log.err("DEBUG: create_span failed: " .. tostring(result))
+            return
+        end
+        local request_span = result
+        kong.log.notice("DEBUG: Created request_span")
 
         -- Set nginx informational tags
         request_span:set_tag("nginx.version", ngx.config.nginx_version)
@@ -246,6 +301,7 @@ if subsystem == "http" then
     end
 
     function DatadogTraceHandler:rewrite(conf)
+        kong.log.notice("DEBUG: rewrite() called")
         local ok, message = pcall(function() self:rewrite_p(conf) end)
         if not ok then
             kong.log.err("tracing error in DatadogTraceHandler:rewrite: " .. message)
@@ -258,22 +314,28 @@ if subsystem == "http" then
 
 
     function DatadogTraceHandler:access(conf)
+        kong.log.notice("DEBUG: access() called")
         local ok, message = pcall(function() self:access_p(conf) end)
+        kong.log.notice("DEBUG: access() pcall result: ok=" .. tostring(ok) .. ", message=" .. tostring(message))
         if not ok then
             kong.log.err("tracing error in DatadogTraceHandler:access: " .. message)
         end
     end
 
     function DatadogTraceHandler:access_p(conf)
+        kong.log.notice("DEBUG: access_p starting")
         local datadog = get_datadog_context(conf, kong.ctx.plugin)
+        kong.log.notice("DEBUG: got datadog context")
 
         local proxy_span = get_or_add_proxy_span(datadog)
+        kong.log.notice("DEBUG: got proxy span")
 
         local injector = function(key, value)
           kong.service.request.set_header(key, value)
         end
 
-        proxy_span:inject(injector)
+        proxy_span:inject_span(injector)
+        kong.log.notice("DEBUG: access_p done")
     end
 
     function DatadogTraceHandler:header_filter(conf) -- luacheck: ignore 212
@@ -359,9 +421,19 @@ function DatadogTraceHandler:log_p(conf) -- luacheck: ignore 212
             request_span:set_error(true)
         end
 
-        if header_tags then
-          request_span:set_http_header_tags(header_tags, kong.request.get_header, kong.response.get_header)
-        end
+        -- if header_tags then
+        --   -- Set header tags on the span
+        --   for header_name, tag_info in pairs(header_tags) do
+        --     local header_value = kong.request.get_header(header_name)
+        --     if not header_value then
+        --       header_value = kong.response.get_header(header_name)
+        --     end
+        --     if header_value then
+        --       local tag_name = "http.request.headers." .. tag_info.value
+        --       request_span:set_tag(tag_name, header_value)
+        --     end
+        --   end
+        -- end
     end
     if ngx_ctx.authenticated_consumer then
         request_span:set_tag("kong.consumer", ngx_ctx.authenticated_consumer.id)

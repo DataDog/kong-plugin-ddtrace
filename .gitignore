@@ -12,3 +12,5 @@ luacov.report.out
 # exclude Pongo containerid file
 .containerid
 .DS_Store
+# exclude base64 encoded library files
+*.b64
