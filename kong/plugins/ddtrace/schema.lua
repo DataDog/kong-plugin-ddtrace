@@ -97,7 +97,6 @@ return {
                 fields = {
                     { service_name = { type = "string" } },
                     { environment = { type = "string" } },
-                    -- priority of values for agent address details are resolved in new_trace_agent_writer
                     { agent_host = typedefs.host({}) },
                     { trace_agent_port = { type = "integer", gt = 0 } },
                     { trace_agent_url = typedefs.url() },
@@ -132,6 +131,7 @@ return {
                         },
                     },
                     { startup_log = { type = "boolean", default = true } },
+                    { include_credential = { type = "boolean", default = false } },
                     -- Deprecated:
                     { agent_endpoint = { type = "string", custom_validator = deprecated_agent_endpoint } },
                 },

@@ -1,3 +1,4 @@
 --postgres
 --cassandra
+--dd-trace-cpp
 --datadog-agent

@@ -7,6 +7,18 @@ issue](https://github.com/DataDog/kong-plugin-ddtrace/issues/new) and discuss yo
 ideas or propose the changes you wish to make. After a resolution is reached, a
 PR can be submitted for review.
 
+## Prerequisites
+
+This plugin depends on `dd-trace-cpp`. You need both repositories checked out locally:
+
+```
+workspace/
+├── dd-trace-cpp/
+└── kong-plugin-ddtrace/
+```
+
+Update the volume mount path in `.pongo/dd-trace-cpp.yml` to point to your local `dd-trace-cpp` checkout.
+
 ## Testing
 
 ### Test Environment
@@ -22,6 +34,8 @@ cd kong-plugin-ddtrace
 pongo up
 pongo shell
 ```
+
+The C++ library (`libdd_trace_c.so`) is built automatically on first shell entry via `.pongo/pongo-setup.sh`. This takes ~2-3 minutes on first run.
 
 Inside the shell:
 ```bash
@@ -44,6 +58,15 @@ If the `DD_API_KEY` was correctly set, then the trace should appear at https://a
 
 ### Built-in Tests
 
-The built-in tests can be executed by running `pongo run --no-datadog-agent`.
+The built-in tests can be executed by running `pongo run`.
 
-A report for test coverage is produced when run with additional options: `pongo run --no-datadog-agent -- --coverage`.
+A report for test coverage is produced when run with additional options: `pongo run -- --coverage`.
+
+### Rebuilding the C++ Library
+
+If you make changes to `dd-trace-cpp`, rebuild the library inside the Pongo shell:
+
+```bash
+rm /usr/local/lib/libdd_trace_c.so
+/kong-plugin/pongo-build.sh
+```

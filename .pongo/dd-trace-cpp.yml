@@ -1,0 +1,17 @@
+services:
+  # Volume mount service - immediately healthy
+  dd-trace-cpp:
+    image: alpine:latest
+    command: ["sleep", "infinity"]
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 1s
+      timeout: 1s
+      retries: 1
+      start_period: 1s
+    restart: "no"
+  
+  # Add volume mount to kong service
+  kong:
+    volumes:
+      - /Users/adesh.kumar/go/src/github.com/DataDog/dd-trace-cpp:/dd-trace-cpp
