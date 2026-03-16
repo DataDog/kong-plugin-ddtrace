@@ -15,11 +15,13 @@ local DatadogTraceHandler = {
     PRIORITY = 100000,
 }
 
--- Tracer config option constants (from datadog_sdk_tracer_option enum)
+-- Tracer config option constants (from dd_tracer_option enum)
 local TRACER_OPT_SERVICE_NAME = 0
 local TRACER_OPT_ENV = 1
 local TRACER_OPT_VERSION = 2
 local TRACER_OPT_AGENT_URL = 3
+local TRACER_OPT_INTEGRATION_NAME = 4
+local TRACER_OPT_INTEGRATION_VERSION = 5
 
 -- Cache for tracer instances per configuration
 local tracer_cache = setmetatable({}, { __mode = "k" })
@@ -86,10 +88,17 @@ end
 
 -- Helper: finish a span and free it (free triggers trace submission in dd-trace-cpp).
 -- Detaches the ffi.gc guard first to prevent double-free.
+-- Both dd_span_finish and dd_span_free are no-ops when passed NULL (safe per C header).
 local function finish_span(span)
+    if span == nil then
+        return
+    end
     ffi.gc(span, nil)
-    lib.datadog_sdk_span_finish(span)
-    lib.datadog_sdk_span_free(span)
+    local ok, err = pcall(lib.dd_span_finish, span)
+    if not ok then
+        kong.log.err("dd_span_finish failed: ", err)
+    end
+    lib.dd_span_free(span)
 end
 
 local function get_tracer(conf)
@@ -107,35 +116,40 @@ local function get_tracer(conf)
         local environment = DD_ENV or conf.environment
         local version = DD_VERSION or conf.version
 
-        local dd_conf = lib.datadog_sdk_tracer_conf_new()
+        local dd_conf = lib.dd_tracer_conf_new()
         if dd_conf == nil then
-            kong.log.err("Failed to create tracer configuration")
+            kong.log.err("Failed to create tracer configuration for agent_url=", agent_url)
             return nil
         end
 
+        -- dd_tracer_conf_set copies string values internally; the Lua string
+        -- pointers passed via ffi.cast are not retained after the call returns.
         if service then
-            lib.datadog_sdk_tracer_conf_set(dd_conf, TRACER_OPT_SERVICE_NAME, ffi.cast("void*", service))
+            lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_SERVICE_NAME, ffi.cast("void*", service))
         end
         if environment then
-            lib.datadog_sdk_tracer_conf_set(dd_conf, TRACER_OPT_ENV, ffi.cast("void*", environment))
+            lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_ENV, ffi.cast("void*", environment))
         end
         if version then
-            lib.datadog_sdk_tracer_conf_set(dd_conf, TRACER_OPT_VERSION, ffi.cast("void*", version))
+            lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_VERSION, ffi.cast("void*", version))
         end
         if agent_url then
-            lib.datadog_sdk_tracer_conf_set(dd_conf, TRACER_OPT_AGENT_URL, ffi.cast("void*", agent_url))
+            lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_AGENT_URL, ffi.cast("void*", agent_url))
         end
+        lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_INTEGRATION_NAME, ffi.cast("void*", "kong"))
+        lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_INTEGRATION_VERSION, ffi.cast("void*", DatadogTraceHandler.VERSION))
 
         -- Create tracer
-        local tracer = lib.datadog_sdk_tracer_new(dd_conf)
-        lib.datadog_sdk_tracer_conf_free(dd_conf)
+        local err = ffi.new("dd_error_t")
+        local tracer = lib.dd_tracer_new(dd_conf, err)
+        lib.dd_tracer_conf_free(dd_conf)
 
         if tracer == nil then
-            kong.log.err("Failed to create tracer")
+            kong.log.err("Failed to create tracer: ", ffi.string(err.message))
             return nil
         end
 
-        tracer_cache[conf] = ffi.gc(tracer, lib.datadog_sdk_tracer_free)
+        tracer_cache[conf] = ffi.gc(tracer, lib.dd_tracer_free)
     end
     return tracer_cache[conf]
 end
@@ -143,11 +157,11 @@ end
 local function expose_tracing_variables(span)
     -- Get trace ID as hex string
     local trace_id_buf = ffi.new("char[33]")
-    local trace_id_len = lib.datadog_sdk_span_get_trace_id(span, trace_id_buf, 33)
+    local trace_id_len = lib.dd_span_get_trace_id(span, trace_id_buf, 33)
 
     -- Get span ID as hex string
     local span_id_buf = ffi.new("char[17]")
-    local span_id_len = lib.datadog_sdk_span_get_span_id(span, span_id_buf, 17)
+    local span_id_len = lib.dd_span_get_span_id(span, span_id_buf, 17)
 
     if trace_id_len >= 0 and span_id_len >= 0 then
         local trace_id = ffi.string(trace_id_buf)
@@ -261,6 +275,9 @@ local current_response_headers
 
 -- Anchors Lua strings returned via FFI callbacks to prevent GC from collecting
 -- them while C++ still holds a pointer to the underlying buffer.
+-- Per the C header: "The returned pointer must remain valid until
+-- dd_tracer_extract_or_create_span returns." The table is cleared immediately
+-- after that function returns, so strings are only pinned during extraction.
 local _pinned_strings = {}
 
 local header_getter_cb = ffi.cast("const char* (*)(const char*)", function(header_name)
@@ -287,8 +304,8 @@ end)
 
 local function access(conf)
     local tracer = get_tracer(conf)
-    if not tracer then
-        kong.log.err("Tracer not available")
+    if tracer == nil then
+        kong.log.err("Tracer not available for service=", DD_SERVICE or conf.service_name or "kong")
         return
     end
 
@@ -301,119 +318,116 @@ local function access(conf)
     local path = req.get_path()
     local resource = method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule)
 
-    local root_span = lib.datadog_sdk_tracer_extract_or_create_span(
-        tracer,
-        header_getter_cb,
-        "kong.request",
-        resource
-    )
+    local root_opts = ffi.new("dd_span_options_t", { "kong.request", resource })
+    local root_span = lib.dd_tracer_extract_or_create_span(tracer, header_getter_cb, root_opts)
 
-    -- Release pinned header strings now that extraction is complete
-    for i = 1, #_pinned_strings do _pinned_strings[i] = nil end
+    -- Release pinned header strings and callback state now that extraction is complete
+    for i = 1, #_pinned_strings do
+        _pinned_strings[i] = nil
+    end
+    current_request_headers = nil
 
-    if not root_span then
-        kong.log.err("Failed to create root span")
+    -- NOTE: Must use == nil for FFI pointers; NULL cdata is truthy in LuaJIT.
+    if root_span == nil then
+        kong.log.err("Failed to create root span for ", method, " ", path)
         return
     end
 
     -- Wrap in ffi.gc as a safety net: if an error prevents explicit finish_span,
     -- the GC will eventually free the C++ span to prevent memory leaks.
-    root_span = ffi.gc(root_span, lib.datadog_sdk_span_free)
+    root_span = ffi.gc(root_span, lib.dd_span_free)
 
     -- Set HTTP tags
     local url = req.get_scheme() .. "://" .. req.get_host() .. ":" .. req.get_port() .. path
-    lib.datadog_sdk_span_set_tag(root_span, "http.method", method)
-    lib.datadog_sdk_span_set_tag(root_span, "http.url", url)
+    lib.dd_span_set_tag(root_span, "http.method", method)
+    lib.dd_span_set_tag(root_span, "http.url", url)
 
     local client_ip = kong.client.get_forwarded_ip()
     if client_ip then
-        lib.datadog_sdk_span_set_tag(root_span, "http.client_ip", client_ip)
+        lib.dd_span_set_tag(root_span, "http.client_ip", client_ip)
     end
 
     local useragent = req.get_header("user-agent")
     if useragent then
-        lib.datadog_sdk_span_set_tag(root_span, "http.useragent", useragent)
+        lib.dd_span_set_tag(root_span, "http.useragent", useragent)
     end
 
     local content_length = req.get_header("content-length")
     if content_length then
-        lib.datadog_sdk_span_set_tag(root_span, "http.request.content_length", content_length)
+        lib.dd_span_set_tag(root_span, "http.request.content_length", content_length)
     end
 
     local http_version = req.get_http_version()
     if http_version then
-        lib.datadog_sdk_span_set_tag(root_span, "http.version", tostring(http_version))
+        lib.dd_span_set_tag(root_span, "http.version", tostring(http_version))
     end
 
-    lib.datadog_sdk_span_set_tag(root_span, "span.kind", "server")
-    lib.datadog_sdk_span_set_tag(root_span, "component", "kong")
+    lib.dd_span_set_tag(root_span, "span.kind", "server")
+    lib.dd_span_set_tag(root_span, "component", "kong")
 
     -- Set Kong tags
     if kong.version then
-        lib.datadog_sdk_span_set_tag(root_span, "kong.version", kong.version)
+        lib.dd_span_set_tag(root_span, "kong.version", kong.version)
     end
     if kong.pdk_version then
-        lib.datadog_sdk_span_set_tag(root_span, "kong.pdk_version", kong.pdk_version)
+        lib.dd_span_set_tag(root_span, "kong.pdk_version", kong.pdk_version)
     end
     if kong_node_id then
-        lib.datadog_sdk_span_set_tag(root_span, "kong.node_id", kong_node_id)
+        lib.dd_span_set_tag(root_span, "kong.node_id", kong_node_id)
     end
     if ngx.config.nginx_version then
-        lib.datadog_sdk_span_set_tag(root_span, "nginx.version", tostring(ngx.config.nginx_version))
+        lib.dd_span_set_tag(root_span, "nginx.version", tostring(ngx.config.nginx_version))
     end
     if ngx.config.ngx_lua_version then
-        lib.datadog_sdk_span_set_tag(root_span, "nginx.lua_version", tostring(ngx.config.ngx_lua_version))
+        lib.dd_span_set_tag(root_span, "nginx.lua_version", tostring(ngx.config.ngx_lua_version))
     end
     if ngx_worker_pid > 0 then
-        lib.datadog_sdk_span_set_tag(root_span, "nginx.worker_pid", tostring(ngx_worker_pid))
+        lib.dd_span_set_tag(root_span, "nginx.worker_pid", tostring(ngx_worker_pid))
     end
     if ngx_worker_id >= 0 then
-        lib.datadog_sdk_span_set_tag(root_span, "nginx.worker_id", tostring(ngx_worker_id))
+        lib.dd_span_set_tag(root_span, "nginx.worker_id", tostring(ngx_worker_id))
     end
     if ngx_worker_count > 0 then
-        lib.datadog_sdk_span_set_tag(root_span, "nginx.worker_count", tostring(ngx_worker_count))
+        lib.dd_span_set_tag(root_span, "nginx.worker_count", tostring(ngx_worker_count))
     end
 
     -- Set environment/version tags
     if ddtrace_conf.environment then
-        lib.datadog_sdk_span_set_tag(root_span, "env", ddtrace_conf.environment)
+        lib.dd_span_set_tag(root_span, "env", ddtrace_conf.environment)
     end
     if ddtrace_conf.version then
-        lib.datadog_sdk_span_set_tag(root_span, "version", ddtrace_conf.version)
+        lib.dd_span_set_tag(root_span, "version", ddtrace_conf.version)
     end
 
     -- Set static tags
     if type(conf.static_tags) == "table" then
         for i = 1, #conf.static_tags do
             local tag = conf.static_tags[i]
-            lib.datadog_sdk_span_set_tag(root_span, tag.name, tag.value)
+            lib.dd_span_set_tag(root_span, tag.name, tag.value)
         end
     end
 
     -- Set Kong configuration tags
     if kong.configuration then
-        lib.datadog_sdk_span_set_tag(root_span, "kong.role", kong.configuration.role)
-        lib.datadog_sdk_span_set_tag(root_span, "kong.nginx_daemon", tostring(kong.configuration.nginx_daemon))
-        lib.datadog_sdk_span_set_tag(root_span, "kong.database", kong.configuration.database)
+        lib.dd_span_set_tag(root_span, "kong.role", kong.configuration.role)
+        lib.dd_span_set_tag(root_span, "kong.nginx_daemon", tostring(kong.configuration.nginx_daemon))
+        lib.dd_span_set_tag(root_span, "kong.database", kong.configuration.database)
     end
 
-    -- Create proxy span (note: arg order is name, service, resource)
-    local proxy_span = lib.datadog_sdk_span_create_child_with_options(
-        root_span,
-        "kong.proxy",
-        nil,
-        resource
-    )
+    -- Create proxy span
+    local proxy_opts = ffi.new("dd_span_options_t", { "kong.proxy", resource })
+    local proxy_span = lib.dd_span_create_child(root_span, proxy_opts)
 
-    if proxy_span then
+    if proxy_span ~= nil then
         -- Wrap in ffi.gc as a safety net (same as root_span above)
-        proxy_span = ffi.gc(proxy_span, lib.datadog_sdk_span_free)
+        proxy_span = ffi.gc(proxy_span, lib.dd_span_free)
 
         expose_tracing_variables(proxy_span)
 
         -- Inject trace context into upstream request
         current_response_headers = kong.service.request.set_header
-        lib.datadog_sdk_span_inject(proxy_span, header_setter_cb)
+        lib.dd_span_inject(proxy_span, header_setter_cb)
+        current_response_headers = nil
     end
 
     -- Store spans in context
@@ -432,23 +446,23 @@ local function header_filter(conf)
     local span = ctx.proxy_span
 
     -- Set span kind to client
-    lib.datadog_sdk_span_set_tag(span, "span.kind", "client")
+    lib.dd_span_set_tag(span, "span.kind", "client")
 
     -- Set balancer info
     local ngx_ctx = ngx.ctx
     local balancer_data = ngx_ctx.balancer_data
     if balancer_data then
         if balancer_data.hostname then
-            lib.datadog_sdk_span_set_tag(span, "peer.hostname", balancer_data.hostname)
+            lib.dd_span_set_tag(span, "peer.hostname", balancer_data.hostname)
         end
         if balancer_data.ip then
-            lib.datadog_sdk_span_set_tag(span, "peer.ip", balancer_data.ip)
+            lib.dd_span_set_tag(span, "peer.ip", balancer_data.ip)
         end
         if balancer_data.port and balancer_data.port > 0 then
-            lib.datadog_sdk_span_set_tag(span, "peer.port", tostring(balancer_data.port))
+            lib.dd_span_set_tag(span, "peer.port", tostring(balancer_data.port))
         end
         if balancer_data.try_count and balancer_data.try_count > 0 then
-            lib.datadog_sdk_span_set_tag(span, "kong.balancer.tries", tostring(balancer_data.try_count))
+            lib.dd_span_set_tag(span, "kong.balancer.tries", tostring(balancer_data.try_count))
         end
 
         -- Set try-specific tags
@@ -458,12 +472,12 @@ local function header_filter(conf)
             local try = balancer_tries[i]
             local tag_prefix = fmt("kong.balancer.try-%d.", i)
             if i < try_count then
-                lib.datadog_sdk_span_set_tag(span, tag_prefix .. "error", "true")
-                lib.datadog_sdk_span_set_tag(span, tag_prefix .. "state", try.state)
-                lib.datadog_sdk_span_set_tag(span, tag_prefix .. "status_code", tostring(try.code))
+                lib.dd_span_set_tag(span, tag_prefix .. "error", "true")
+                lib.dd_span_set_tag(span, tag_prefix .. "state", try.state)
+                lib.dd_span_set_tag(span, tag_prefix .. "status_code", tostring(try.code))
             end
             if try.balancer_latency then
-                lib.datadog_sdk_span_set_tag(span, tag_prefix .. "latency", tostring(try.balancer_latency))
+                lib.dd_span_set_tag(span, tag_prefix .. "latency", tostring(try.balancer_latency))
             end
         end
     end
@@ -471,31 +485,31 @@ local function header_filter(conf)
     -- Set service and route info
     local service = kong.router.get_service()
     if service and service.id then
-        lib.datadog_sdk_span_set_tag(span, "kong.service", service.id)
+        lib.dd_span_set_tag(span, "kong.service", service.id)
         if type(service.name) == "string" then
-            lib.datadog_sdk_span_set_tag(span, "kong.service_name", service.name)
-            lib.datadog_sdk_span_set_service(span, service.name)
+            lib.dd_span_set_tag(span, "kong.service_name", service.name)
+            lib.dd_span_set_service(span, service.name)
         end
     end
 
     local route = kong.router.get_route()
     if route then
-        lib.datadog_sdk_span_set_tag(span, "kong.route", route.id)
+        lib.dd_span_set_tag(span, "kong.route", route.id)
         if type(route.name) == "string" then
-            lib.datadog_sdk_span_set_tag(span, "kong.route_name", route.name)
+            lib.dd_span_set_tag(span, "kong.route_name", route.name)
         end
     else
-        lib.datadog_sdk_span_set_tag(span, "kong.route", "none")
+        lib.dd_span_set_tag(span, "kong.route", "none")
     end
 
     -- Set status code and error
     local status_code = kong.response.get_status()
     if status_code > 0 then
-        lib.datadog_sdk_span_set_tag(span, "http.status_code", tostring(status_code))
+        lib.dd_span_set_tag(span, "http.status_code", tostring(status_code))
     end
 
     if status_code >= 500 then
-        lib.datadog_sdk_span_set_error(span, 1)
+        lib.dd_span_set_error(span, 1)
     end
 
     -- Finish proxy span
@@ -519,17 +533,13 @@ local function log(conf)
             local res_header_value = kong.response.get_header(header_name)
 
             if req_header_value then
-                local tag = tag_entry.normalized
-                    and ("http.request.headers." .. tag_entry.value)
-                    or tag_entry.value
-                lib.datadog_sdk_span_set_tag(root_span, tag, concat_value(req_header_value, ","))
+                local tag = tag_entry.normalized and ("http.request.headers." .. tag_entry.value) or tag_entry.value
+                lib.dd_span_set_tag(root_span, tag, concat_value(req_header_value, ","))
             end
 
             if res_header_value then
-                local tag = tag_entry.normalized
-                    and ("http.response.headers." .. tag_entry.value)
-                    or tag_entry.value
-                lib.datadog_sdk_span_set_tag(root_span, tag, concat_value(res_header_value, ","))
+                local tag = tag_entry.normalized and ("http.response.headers." .. tag_entry.value) or tag_entry.value
+                lib.dd_span_set_tag(root_span, tag, concat_value(res_header_value, ","))
             end
         end
     end
@@ -537,10 +547,10 @@ local function log(conf)
     -- Set authenticated consumer/credential
     local ngx_ctx = ngx.ctx
     if ngx_ctx.authenticated_consumer then
-        lib.datadog_sdk_span_set_tag(root_span, "kong.consumer", ngx_ctx.authenticated_consumer.id)
+        lib.dd_span_set_tag(root_span, "kong.consumer", ngx_ctx.authenticated_consumer.id)
     end
     if conf and conf.include_credential and ngx_ctx.authenticated_credential then
-        lib.datadog_sdk_span_set_tag(root_span, "kong.credential", ngx_ctx.authenticated_credential.id)
+        lib.dd_span_set_tag(root_span, "kong.credential", ngx_ctx.authenticated_credential.id)
     end
 
     -- Finish root span

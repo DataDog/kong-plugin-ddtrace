@@ -11,7 +11,9 @@ services:
       start_period: 1s
     restart: "no"
   
-  # Add volume mount to kong service
+  # Add volume mount to kong service.
+  # Set DD_TRACE_CPP_DIR to the path of your local dd-trace-cpp checkout.
+  # Example: export DD_TRACE_CPP_DIR=$HOME/dd/dd-trace-cpp
   kong:
     volumes:
-      - /Users/adesh.kumar/go/src/github.com/DataDog/dd-trace-cpp:/dd-trace-cpp
+      - ${DD_TRACE_CPP_DIR:?Set DD_TRACE_CPP_DIR to your local dd-trace-cpp checkout}:/dd-trace-cpp

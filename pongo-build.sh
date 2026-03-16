@@ -38,7 +38,7 @@ rm -rf build
 
 echo "    Running cmake configure..."
 if ! cmake -S . -B build \
-    -DBUILD_C_BINDING=ON \
+    -DDD_TRACE_BUILD_C_BINDING=ON \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON; then
     echo "ERROR: cmake configure failed for dd-trace-cpp"

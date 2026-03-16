@@ -4,52 +4,78 @@ local ffi = require("ffi")
 -- Requires libdd_trace_c to be installed (e.g. in /usr/local/lib/) and ldconfig run.
 local ok, lib = pcall(ffi.load, "dd_trace_c")
 if not ok then
-    error("Failed to load libdd_trace_c: " .. tostring(lib) ..
-          "\n\nRun /kong-plugin/pongo-build.sh to build and install the library.")
+    error(
+        "Failed to load libdd_trace_c: "
+            .. tostring(lib)
+            .. "\n\nRun /kong-plugin/pongo-build.sh to build and install the library."
+    )
 end
 
 -- C function declarations (from dd-trace-cpp/binding/c/include/datadog/c/tracer.h)
-ffi.cdef[[
-    typedef void datadog_sdk_conf_t;
-    typedef void datadog_sdk_tracer_t;
-    typedef void datadog_sdk_span_t;
+ffi.cdef([[
+    typedef const char* (*dd_context_read_callback)(const char* key);
+    typedef void (*dd_context_write_callback)(const char* key, const char* value);
 
-    typedef const char* (*datadog_sdk_context_read_callback)(const char* key);
-    typedef void (*datadog_sdk_context_write_callback)(const char* key, const char* value);
+    typedef struct {
+        const char* name;
+        const char* resource;
+        const char* service;
+        const char* service_type;
+        const char* environment;
+        const char* version;
+    } dd_span_options_t;
 
-    datadog_sdk_conf_t* datadog_sdk_tracer_conf_new();
-    void datadog_sdk_tracer_conf_free(datadog_sdk_conf_t* handle);
-    void datadog_sdk_tracer_conf_set(datadog_sdk_conf_t* handle, int option, void* value);
+    typedef enum {
+        DD_ERROR_OK = 0,
+        DD_ERROR_NULL_ARGUMENT = 1,
+        DD_ERROR_INVALID_CONFIG = 2,
+        DD_ERROR_ALLOCATION_FAILURE = 3
+    } dd_error_code;
 
-    datadog_sdk_tracer_t* datadog_sdk_tracer_new(datadog_sdk_conf_t* conf_handle);
-    void datadog_sdk_tracer_free(datadog_sdk_tracer_t* tracer_handle);
+    typedef struct {
+        dd_error_code code;
+        char message[256];
+    } dd_error_t;
 
-    datadog_sdk_span_t* datadog_sdk_tracer_extract_or_create_span(
-        datadog_sdk_tracer_t* tracer_handle,
-        datadog_sdk_context_read_callback on_context_read,
-        const char* name,
-        const char* resource);
+    typedef struct dd_conf_s dd_conf_t;
+    typedef struct dd_tracer_s dd_tracer_t;
+    typedef struct dd_span_s dd_span_t;
 
-    datadog_sdk_span_t* datadog_sdk_span_create_child_with_options(
-        datadog_sdk_span_t* span_handle,
-        const char* name,
-        const char* service,
-        const char* resource);
+    dd_conf_t* dd_tracer_conf_new(void);
+    void dd_tracer_conf_free(dd_conf_t* handle);
+    void dd_tracer_conf_set(dd_conf_t* handle, int option, const void* value);
 
-    void datadog_sdk_span_finish(datadog_sdk_span_t* span_handle);
-    void datadog_sdk_span_free(datadog_sdk_span_t* span_handle);
+    dd_tracer_t* dd_tracer_new(const dd_conf_t* conf_handle, dd_error_t* error);
+    void dd_tracer_free(dd_tracer_t* tracer_handle);
 
-    void datadog_sdk_span_set_tag(datadog_sdk_span_t* span_handle, const char* key, const char* value);
-    void datadog_sdk_span_set_error(datadog_sdk_span_t* span_handle, int error_value);
-    void datadog_sdk_span_set_resource(datadog_sdk_span_t* span_handle, const char* resource);
-    void datadog_sdk_span_set_service(datadog_sdk_span_t* span_handle, const char* service);
+    dd_span_t* dd_tracer_create_span(
+        dd_tracer_t* tracer_handle,
+        dd_span_options_t options);
 
-    void datadog_sdk_span_inject(
-        datadog_sdk_span_t* span_handle,
-        datadog_sdk_context_write_callback on_context_write);
+    dd_span_t* dd_tracer_extract_or_create_span(
+        dd_tracer_t* tracer_handle,
+        dd_context_read_callback on_context_read,
+        dd_span_options_t options);
 
-    int datadog_sdk_span_get_trace_id(datadog_sdk_span_t* span_handle, char* buffer, int buffer_size);
-    int datadog_sdk_span_get_span_id(datadog_sdk_span_t* span_handle, char* buffer, int buffer_size);
-]]
+    dd_span_t* dd_span_create_child(
+        dd_span_t* span_handle,
+        dd_span_options_t options);
+
+    void dd_span_finish(dd_span_t* span_handle);
+    void dd_span_free(dd_span_t* span_handle);
+
+    void dd_span_set_tag(dd_span_t* span_handle, const char* key, const char* value);
+    void dd_span_set_error(dd_span_t* span_handle, int error_value);
+    void dd_span_set_error_message(dd_span_t* span_handle, const char* error_message);
+    void dd_span_set_resource(dd_span_t* span_handle, const char* resource);
+    void dd_span_set_service(dd_span_t* span_handle, const char* service);
+
+    void dd_span_inject(
+        dd_span_t* span_handle,
+        dd_context_write_callback on_context_write);
+
+    int dd_span_get_trace_id(dd_span_t* span_handle, char* buffer, size_t buffer_size);
+    int dd_span_get_span_id(dd_span_t* span_handle, char* buffer, size_t buffer_size);
+]])
 
 return lib

@@ -17,7 +17,11 @@ workspace/
 └── kong-plugin-ddtrace/
 ```
 
-Update the volume mount path in `.pongo/dd-trace-cpp.yml` to point to your local `dd-trace-cpp` checkout.
+Set the `DD_TRACE_CPP_DIR` environment variable to point to your local `dd-trace-cpp` checkout:
+
+```bash
+export DD_TRACE_CPP_DIR=/path/to/dd-trace-cpp
+```
 
 ## Testing
 
