@@ -108,12 +108,17 @@ return {
                         },
                     },
                     { resource_name_rule = { type = "array", elements = resource_name_rule } },
+                    -- Deprecated: sampling is now handled by dd-trace-cpp.
+                    -- Use DD_TRACE_SAMPLE_RATE and DD_TRACE_RATE_LIMIT environment variables.
                     { initial_samples_per_second = { type = "integer", default = 100, gt = 0 } },
                     { initial_sample_rate = { type = "number", default = nil, between = { 0, 1 } } },
                     { version = { type = "string" } },
                     { header_tags = { type = "array", elements = header_tag, custom_validator = validate_header_tag } },
                     { max_header_size = { type = "integer", default = 512, between = { 0, 512 } } },
                     { generate_128bit_trace_ids = { type = "boolean", default = true } },
+                    -- Deprecated: propagation styles are now handled by dd-trace-cpp.
+                    -- Use DD_TRACE_PROPAGATION_STYLE_INJECT and DD_TRACE_PROPAGATION_STYLE_EXTRACT
+                    -- environment variables.
                     {
                         injection_propagation_styles = {
                             type = "array",

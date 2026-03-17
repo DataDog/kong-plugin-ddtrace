@@ -72,7 +72,9 @@ for _, strategy in helpers.all_strategies() do
                     -- The mock agent may catch telemetry (JSON) before traces (msgpack).
                     -- Keep polling until we get the trace submission.
                     local lines, body, headers = mock_agent()
-                    if lines and headers["Content-Type"] == "application/msgpack" then
+                    -- Header keys may be normalized to lowercase by Kong/OpenResty
+                    local ct = headers and (headers["Content-Type"] or headers["content-type"])
+                    if lines and ct == "application/msgpack" then
                         trace_headers = headers
                         trace_body = body
                         return true

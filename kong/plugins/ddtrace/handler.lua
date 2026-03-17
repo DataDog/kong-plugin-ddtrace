@@ -164,8 +164,8 @@ local function expose_tracing_variables(span)
     local span_id_len = lib.dd_span_get_span_id(span, span_id_buf, 17)
 
     if trace_id_len >= 0 and span_id_len >= 0 then
-        local trace_id = ffi.string(trace_id_buf)
-        local span_id = ffi.string(span_id_buf)
+        local trace_id = ffi.string(trace_id_buf, trace_id_len)
+        local span_id = ffi.string(span_id_buf, span_id_len)
 
         -- Expose to Kong context
         local kong_shared = kong.ctx.shared
@@ -264,6 +264,12 @@ local function configure(conf)
         kong.log.info("DATADOG TRACER CONFIGURATION - " .. cjson.encode(ddtrace_conf))
     end
 
+    -- Warn if deprecated config fields are set to non-default values.
+    -- These are now handled by dd-trace-cpp via environment variables.
+    if conf.initial_sample_rate then
+        kong.log.warn("initial_sample_rate is deprecated; use DD_TRACE_SAMPLE_RATE environment variable instead")
+    end
+
     if conf and conf.header_tags then
         header_tags = normalize_header_tags(conf.header_tags)
     end
@@ -286,6 +292,11 @@ local header_getter_cb = ffi.cast("const char* (*)(const char*)", function(heade
     end
     local name = ffi.string(header_name)
     local value = current_request_headers(name)
+    -- kong.request.get_header can return a table for multi-value headers;
+    -- propagation headers are single-valued, so take the first element.
+    if type(value) == "table" then
+        value = value[1]
+    end
     if value then
         _pinned_strings[#_pinned_strings + 1] = value
         return ffi.cast("const char*", value)
@@ -553,11 +564,14 @@ local function log(conf)
         lib.dd_span_set_tag(root_span, "kong.credential", ngx_ctx.authenticated_credential.id)
     end
 
+    -- Finish proxy span if header_filter didn't (error recovery)
+    if ctx.proxy_span ~= nil then
+        finish_span(ctx.proxy_span)
+        ctx.proxy_span = nil
+    end
+
     -- Finish root span
     finish_span(root_span)
-
-    -- Clean up
-    ctx.proxy_span = nil
     ctx.root_span = nil
 end
 

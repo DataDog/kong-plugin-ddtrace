@@ -1,7 +1,7 @@
 services:
   # Volume mount service - immediately healthy
   dd-trace-cpp:
-    image: alpine:latest
+    image: alpine:3.21
     command: ["sleep", "infinity"]
     healthcheck:
       test: ["CMD", "true"]
