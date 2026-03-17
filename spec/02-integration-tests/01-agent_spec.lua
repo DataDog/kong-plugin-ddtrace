@@ -86,16 +86,21 @@ for _, strategy in helpers.all_strategies() do
                 assert.is_string(trace_body)
                 assert.is_true(#trace_body > 0)
 
+                -- Helper: header keys may be normalized to lowercase
+                local function h(key)
+                    return trace_headers[key] or trace_headers[string.lower(key)]
+                end
+
                 -- Standard HTTP headers are present
-                assert.is_not_nil(trace_headers["Content-Length"])
-                assert.equals(#trace_body, tonumber(trace_headers["Content-Length"]))
+                assert.is_not_nil(h("Content-Length"))
+                assert.equals(#trace_body, tonumber(h("Content-Length")))
 
                 -- dd-trace-cpp trace submission headers
-                assert.equals("application/msgpack", trace_headers["Content-Type"])
-                assert.equals("cpp", trace_headers["Datadog-Meta-Lang"])
-                assert.is_not_nil(trace_headers["Datadog-Meta-Lang-Version"])
-                assert.is_not_nil(trace_headers["Datadog-Meta-Tracer-Version"])
-                assert.is_not_nil(trace_headers["X-Datadog-Trace-Count"])
+                assert.equals("application/msgpack", h("Content-Type"))
+                assert.equals("cpp", h("Datadog-Meta-Lang"))
+                assert.is_not_nil(h("Datadog-Meta-Lang-Version"))
+                assert.is_not_nil(h("Datadog-Meta-Tracer-Version"))
+                assert.is_not_nil(h("X-Datadog-Trace-Count"))
             end)
         end)
 

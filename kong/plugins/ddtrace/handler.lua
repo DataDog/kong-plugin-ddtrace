@@ -420,9 +420,15 @@ local function access(conf)
 
     -- Set Kong configuration tags
     if kong.configuration then
-        lib.dd_span_set_tag(root_span, "kong.role", kong.configuration.role)
-        lib.dd_span_set_tag(root_span, "kong.nginx_daemon", tostring(kong.configuration.nginx_daemon))
-        lib.dd_span_set_tag(root_span, "kong.database", kong.configuration.database)
+        if kong.configuration.role then
+            lib.dd_span_set_tag(root_span, "kong.role", kong.configuration.role)
+        end
+        if kong.configuration.nginx_daemon ~= nil then
+            lib.dd_span_set_tag(root_span, "kong.nginx_daemon", tostring(kong.configuration.nginx_daemon))
+        end
+        if kong.configuration.database then
+            lib.dd_span_set_tag(root_span, "kong.database", kong.configuration.database)
+        end
     end
 
     -- Create proxy span
@@ -484,8 +490,12 @@ local function header_filter(conf)
             local tag_prefix = fmt("kong.balancer.try-%d.", i)
             if i < try_count then
                 lib.dd_span_set_tag(span, tag_prefix .. "error", "true")
-                lib.dd_span_set_tag(span, tag_prefix .. "state", try.state)
-                lib.dd_span_set_tag(span, tag_prefix .. "status_code", tostring(try.code))
+                if try.state then
+                    lib.dd_span_set_tag(span, tag_prefix .. "state", try.state)
+                end
+                if try.code then
+                    lib.dd_span_set_tag(span, tag_prefix .. "status_code", tostring(try.code))
+                end
             end
             if try.balancer_latency then
                 lib.dd_span_set_tag(span, tag_prefix .. "latency", tostring(try.balancer_latency))
@@ -504,7 +514,7 @@ local function header_filter(conf)
     end
 
     local route = kong.router.get_route()
-    if route then
+    if route and route.id then
         lib.dd_span_set_tag(span, "kong.route", route.id)
         if type(route.name) == "string" then
             lib.dd_span_set_tag(span, "kong.route_name", route.name)
