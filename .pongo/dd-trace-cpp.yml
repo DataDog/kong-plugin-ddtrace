@@ -1,5 +1,8 @@
 services:
-  # Volume mount service - immediately healthy
+  # Pongo requires a running, healthy container for each dependency listed in
+  # pongorc. This service is a no-op — its only purpose is to satisfy Pongo's
+  # health check. The actual work is the volume mount on the kong service below,
+  # which makes the dd-trace-cpp source available for building libdd_trace_c.so.
   dd-trace-cpp:
     image: alpine:3.21
     command: ["sleep", "infinity"]

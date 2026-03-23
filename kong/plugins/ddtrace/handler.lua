@@ -11,7 +11,7 @@ local regex = ngx.re
 local subsystem = ngx.config.subsystem
 
 local DatadogTraceHandler = {
-    VERSION = "0.2.4",
+    VERSION = "0.3.0rc1",
     PRIORITY = 100000,
 }
 
@@ -101,67 +101,71 @@ local function finish_span(span)
     lib.dd_span_free(span)
 end
 
+-- Build a dd_conf_t handle from the resolved configuration stored in ddtrace_conf.
+-- dd_tracer_conf_set copies string values internally; the Lua string pointers
+-- passed via ffi.cast are not retained after the call returns.
+local function create_tracer_config()
+    local dd_conf = lib.dd_tracer_conf_new()
+    if dd_conf == nil then
+        kong.log.err("Failed to create tracer configuration for agent_url=", ddtrace_conf.agent_url)
+        return nil
+    end
+
+    if ddtrace_conf.service then
+        lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_SERVICE_NAME, ffi.cast("void*", ddtrace_conf.service))
+    end
+    if ddtrace_conf.environment then
+        lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_ENV, ffi.cast("void*", ddtrace_conf.environment))
+    end
+    if ddtrace_conf.version then
+        lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_VERSION, ffi.cast("void*", ddtrace_conf.version))
+    end
+    if ddtrace_conf.agent_url then
+        lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_AGENT_URL, ffi.cast("void*", ddtrace_conf.agent_url))
+    end
+    lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_INTEGRATION_NAME, ffi.cast("void*", "kong"))
+    lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_INTEGRATION_VERSION, ffi.cast("void*", DatadogTraceHandler.VERSION))
+
+    return dd_conf
+end
+
+-- Create a new dd-trace-cpp tracer from a configuration handle.
+local function create_tracer(dd_conf)
+    local err = ffi.new("dd_error_t")
+    local tracer = lib.dd_tracer_new(dd_conf, err)
+    lib.dd_tracer_conf_free(dd_conf)
+
+    if tracer == nil then
+        kong.log.err("Failed to create tracer: ", ffi.string(err.message))
+        return nil
+    end
+
+    return ffi.gc(tracer, lib.dd_tracer_free)
+end
+
+-- Get or create a cached tracer instance for the given plugin configuration.
 local function get_tracer(conf)
     if tracer_cache[conf] == nil then
-        -- Build agent URL
-        local agent_host = AGENT_HOST or conf.agent_host or "localhost"
-        local agent_port = AGENT_PORT or conf.trace_agent_port or "8126"
-        if type(agent_port) ~= "string" then
-            agent_port = tostring(agent_port)
-        end
-        local agent_url = DD_AGENT_URL or conf.trace_agent_url or fmt("http://%s:%s", agent_host, agent_port)
-
-        -- Create tracer configuration
-        local service = DD_SERVICE or conf.service_name or "kong"
-        local environment = DD_ENV or conf.environment
-        local version = DD_VERSION or conf.version
-
-        local dd_conf = lib.dd_tracer_conf_new()
+        local dd_conf = create_tracer_config()
         if dd_conf == nil then
-            kong.log.err("Failed to create tracer configuration for agent_url=", agent_url)
             return nil
         end
-
-        -- dd_tracer_conf_set copies string values internally; the Lua string
-        -- pointers passed via ffi.cast are not retained after the call returns.
-        if service then
-            lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_SERVICE_NAME, ffi.cast("void*", service))
-        end
-        if environment then
-            lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_ENV, ffi.cast("void*", environment))
-        end
-        if version then
-            lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_VERSION, ffi.cast("void*", version))
-        end
-        if agent_url then
-            lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_AGENT_URL, ffi.cast("void*", agent_url))
-        end
-        lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_INTEGRATION_NAME, ffi.cast("void*", "kong"))
-        lib.dd_tracer_conf_set(dd_conf, TRACER_OPT_INTEGRATION_VERSION, ffi.cast("void*", DatadogTraceHandler.VERSION))
-
-        -- Create tracer
-        local err = ffi.new("dd_error_t")
-        local tracer = lib.dd_tracer_new(dd_conf, err)
-        lib.dd_tracer_conf_free(dd_conf)
-
-        if tracer == nil then
-            kong.log.err("Failed to create tracer: ", ffi.string(err.message))
-            return nil
-        end
-
-        tracer_cache[conf] = ffi.gc(tracer, lib.dd_tracer_free)
+        tracer_cache[conf] = create_tracer(dd_conf)
     end
     return tracer_cache[conf]
 end
 
-local function expose_tracing_variables(span)
-    -- Get trace ID as hex string
-    local trace_id_buf = ffi.new("char[33]")
-    local trace_id_len = lib.dd_span_get_trace_id(span, trace_id_buf, 33)
+-- Buffer sizes for hex-encoded IDs (128-bit trace ID = 32 hex chars + NUL,
+-- 64-bit span ID = 16 hex chars + NUL).
+local TRACE_ID_BUF_SIZE = 33
+local SPAN_ID_BUF_SIZE = 17
 
-    -- Get span ID as hex string
-    local span_id_buf = ffi.new("char[17]")
-    local span_id_len = lib.dd_span_get_span_id(span, span_id_buf, 17)
+local function expose_tracing_variables(span)
+    local trace_id_buf = ffi.new("char[?]", TRACE_ID_BUF_SIZE)
+    local trace_id_len = lib.dd_span_get_trace_id(span, trace_id_buf, TRACE_ID_BUF_SIZE)
+
+    local span_id_buf = ffi.new("char[?]", SPAN_ID_BUF_SIZE)
+    local span_id_len = lib.dd_span_get_span_id(span, span_id_buf, SPAN_ID_BUF_SIZE)
 
     if trace_id_len >= 0 and span_id_len >= 0 then
         local trace_id = ffi.string(trace_id_buf, trace_id_len)
@@ -179,6 +183,8 @@ local function expose_tracing_variables(span)
         if ngx.var.datadog_span_id ~= nil then
             ngx.var.datadog_span_id = span_id
         end
+    else
+        kong.log.warn("Failed to retrieve trace/span ID from span")
     end
 end
 

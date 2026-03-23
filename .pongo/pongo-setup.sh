@@ -1,6 +1,6 @@
 #!/bin/bash
-# Pongo setup script - automatically runs at container startup
-# Builds the C++ library if not already present
+# This script is sourced by Pongo at container startup (not executed directly).
+# It builds the C++ library if not already present and sets LD_LIBRARY_PATH.
 
 if [ -f "/usr/local/lib/libdd_trace_c.so" ]; then
     echo "✓ DDTrace C++ library is available"

@@ -7,7 +7,8 @@ if not ok then
     error(
         "Failed to load libdd_trace_c: "
             .. tostring(lib)
-            .. "\n\nRun /kong-plugin/pongo-build.sh to build and install the library."
+            .. "\n\nEnsure libdd_trace_c.so is installed and ldconfig has been run."
+            .. "\nSee CONTRIBUTING.md for build instructions."
     )
 end
 
