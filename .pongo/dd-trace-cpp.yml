@@ -1,0 +1,22 @@
+services:
+  # Pongo requires a running, healthy container for each dependency listed in
+  # pongorc. This service is a no-op — its only purpose is to satisfy Pongo's
+  # health check. The actual work is the volume mount on the kong service below,
+  # which makes the dd-trace-cpp source available for building libdd_trace_c.so.
+  dd-trace-cpp:
+    image: alpine:3.21
+    command: ["sleep", "infinity"]
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 1s
+      timeout: 1s
+      retries: 1
+      start_period: 1s
+    restart: "no"
+
+  # Add volume mount to kong service.
+  # Set DD_TRACE_CPP_DIR to the path of your local dd-trace-cpp checkout.
+  # Example: export DD_TRACE_CPP_DIR=$HOME/dd/dd-trace-cpp
+  kong:
+    volumes:
+      - ${DD_TRACE_CPP_DIR:?Set DD_TRACE_CPP_DIR to your local dd-trace-cpp checkout}:/dd-trace-cpp
