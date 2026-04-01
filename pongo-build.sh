@@ -53,7 +53,19 @@ fi
 
 # Install library
 echo "  → Installing dd-trace-cpp library..."
-cp build/binding/c/libdd_trace_c.so /usr/local/lib/
+if [ ! -f build/binding/c/libdd_trace_c.so ]; then
+    echo "ERROR: Built library not found at build/binding/c/libdd_trace_c.so"
+    return 1 2>/dev/null || exit 1
+fi
+if ! cp build/binding/c/libdd_trace_c.so /usr/local/lib/; then
+    echo "ERROR: Failed to copy dd-trace-cpp library to /usr/local/lib/"
+    return 1 2>/dev/null || exit 1
+fi
 
 # Update library cache
-ldconfig
+if ! ldconfig; then
+    echo "ERROR: Failed to update library cache with ldconfig"
+    return 1 2>/dev/null || exit 1
+fi
+
+return 0 2>/dev/null || exit 0

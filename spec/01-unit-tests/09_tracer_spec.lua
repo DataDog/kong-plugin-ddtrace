@@ -1,9 +1,19 @@
-local Tracer = require("kong.plugins.ddtrace.tracer")
+local ok = pcall(require, "kong.plugins.ddtrace.tracer")
+if not ok then
+    describe("ddtrace: tracer (skipped)", function()
+        it("requires libdd_trace_c", function()
+            pending("libdd_trace_c not available, skipping tracer tests")
+        end)
+    end)
+    return
+end
+
+local ddtrace = require("kong.plugins.ddtrace.tracer")
 
 describe("ddtrace: tracer", function()
-    describe("new", function()
+    describe("make_tracer", function()
         it("creates a tracer with full config", function()
-            local tracer, err = Tracer.new({
+            local tracer, err = ddtrace.make_tracer({
                 service = "test-service",
                 environment = "test",
                 version = "1.0.0",
@@ -16,19 +26,19 @@ describe("ddtrace: tracer", function()
         end)
 
         it("creates a tracer with empty config (uses defaults)", function()
-            local tracer, err = Tracer.new({})
+            local tracer, err = ddtrace.make_tracer({})
             assert.is_nil(err)
             assert.is_not_nil(tracer)
         end)
 
         it("creates a tracer with nil config", function()
-            local tracer, err = Tracer.new(nil)
+            local tracer, err = ddtrace.make_tracer(nil)
             assert.is_nil(err)
             assert.is_not_nil(tracer)
         end)
 
         it("creates a tracer with only service name", function()
-            local tracer, err = Tracer.new({ service = "my-service" })
+            local tracer, err = ddtrace.make_tracer({ service = "my-service" })
             assert.is_nil(err)
             assert.is_not_nil(tracer)
         end)
@@ -39,11 +49,11 @@ describe("ddtrace: tracer", function()
             local kong_conf = { service_name = "test" }
             local config = { service = "test-service" }
 
-            local tracer1, err1 = Tracer.get_or_create(kong_conf, config)
+            local tracer1, err1 = ddtrace.get_or_create(kong_conf, config)
             assert.is_nil(err1)
             assert.is_not_nil(tracer1)
 
-            local tracer2, err2 = Tracer.get_or_create(kong_conf, config)
+            local tracer2, err2 = ddtrace.get_or_create(kong_conf, config)
             assert.is_nil(err2)
             assert.are.equal(tracer1, tracer2)
         end)
@@ -53,13 +63,23 @@ describe("ddtrace: tracer", function()
             local kong_conf_b = { service_name = "b" }
             local config = { service = "test-service" }
 
-            local tracer_a, err_a = Tracer.get_or_create(kong_conf_a, config)
+            local tracer_a, err_a = ddtrace.get_or_create(kong_conf_a, config)
             assert.is_nil(err_a)
 
-            local tracer_b, err_b = Tracer.get_or_create(kong_conf_b, config)
+            local tracer_b, err_b = ddtrace.get_or_create(kong_conf_b, config)
             assert.is_nil(err_b)
 
             assert.are_not.equal(tracer_a, tracer_b)
+        end)
+    end)
+
+    describe("tracer metatype", function()
+        it("can create a span via tracer:create_span()", function()
+            local tracer, err = ddtrace.make_tracer({ service = "test-service" })
+            assert.is_nil(err)
+
+            local span = tracer:create_span("test.op", "/test")
+            assert.is_not_nil(span)
         end)
     end)
 end)

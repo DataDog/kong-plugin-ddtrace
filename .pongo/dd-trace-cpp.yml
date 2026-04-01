@@ -19,4 +19,4 @@ services:
   # Example: export DD_TRACE_CPP_DIR=$HOME/dd/dd-trace-cpp
   kong:
     volumes:
-      - ${DD_TRACE_CPP_DIR:?Set DD_TRACE_CPP_DIR to your local dd-trace-cpp checkout}:/dd-trace-cpp
+      - ${DD_TRACE_CPP_DIR:-/dev/null}:/dd-trace-cpp
