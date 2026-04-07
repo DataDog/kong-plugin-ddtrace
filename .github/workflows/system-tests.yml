@@ -36,8 +36,8 @@ jobs:
     with:
       library: cpp_kong
       binaries_artifact: binaries
-      desired_execution_time: 300
-      scenarios_groups: ${{ (github.event_name == 'schedule' || github.event_name == 'push') && 'tracer_release' || 'end_to_end' }}
+      scenarios: DEFAULT
+      scenarios_groups: ${{ (github.event_name == 'schedule' || github.event_name == 'push') && 'tracer_release' || '' }}
       skip_empty_scenarios: true
       push_to_test_optimization: ${{ github.actor != 'dependabot[bot]' }}
 
