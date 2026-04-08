@@ -86,6 +86,7 @@ jobs:
           api_key: ${{ steps.dd-sts.outputs.api_key }}
           files: ${{ github.workspace }}/coverage.lcov
           format: lcov
+          base_path: /kong-plugin
 
   package:
     runs-on: ubuntu-22.04
