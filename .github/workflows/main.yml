@@ -18,6 +18,9 @@ jobs:
 
   run-test:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write # needed for dd-sts OIDC token exchange
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
       - uses: Kong/kong-pongo-action@5972effad7a566aed12b879b559bbff07d258d51 #v1.0.3
