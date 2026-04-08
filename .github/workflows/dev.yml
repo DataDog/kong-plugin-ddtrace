@@ -87,5 +87,5 @@ jobs:
         uses: DataDog/coverage-upload-github-action@d2cf302a39c05e0ad22063360a2bf6ce0cc4906c # v1
         with:
           api_key: ${{ steps.dd-sts.outputs.api_key }}
-          files: coverage.lcov
+          files: ${{ github.workspace }}/coverage.lcov
           format: lcov
