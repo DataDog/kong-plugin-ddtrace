@@ -41,34 +41,30 @@ jobs:
         if: always()
         run: |
           python3 -c "
-          import re, sys
-          lcov = []
+          import re
           with open('luacov.report.out') as f:
-              lines = f.readlines()
-          fname = None; lf = lh = 0; sep_count = 0
-          for line in lines:
-              line = line.rstrip('\n')
-              if re.match(r'^={10,}$', line):
-                  sep_count += 1
-                  if sep_count == 2:
-                      sep_count = 0
-                  elif sep_count == 1:
-                      if fname:
-                          lcov.append(f'LF:{lf}'); lcov.append(f'LH:{lh}'); lcov.append('end_of_record')
-                      fname = None; lf = lh = 0
-                  continue
-              if sep_count == 1:
-                  fname = line.strip(); lcov.append(f'SF:{fname}'); sep_count = 0; continue
-              if not fname: continue
-              m = re.match(r'^(\*{5}0|\s*\d+)\s+(\d+)\t', line)
-              if not m: continue
-              cf = m.group(1).strip(); ln = int(m.group(2))
-              if '*' in cf:
-                  lcov.append(f'DA:{ln},0'); lf += 1
-              elif cf and int(cf) > 0:
-                  lcov.append(f'DA:{ln},{cf}'); lf += 1; lh += 1
-          if fname:
-              lcov.append(f'LF:{lf}'); lcov.append(f'LH:{lh}'); lcov.append('end_of_record')
+              content = f.read()
+          sections = re.split(r'(?m)^={30,}\n', content)
+          lcov = []
+          i = 1
+          while i < len(sections):
+              fname = sections[i].strip()
+              if not fname:
+                  i += 1; continue
+              i += 1
+              data = sections[i] if i < len(sections) else ''
+              lcov.append(f'SF:{fname}')
+              lf = lh = 0; line_no = 1
+              for line in data.splitlines():
+                  m = re.match(r'^(\*{3}0|\s*(\d+))\s', line)
+                  if m:
+                      hits_str = m.group(1).strip()
+                      hits = 0 if hits_str.startswith('*') else int(hits_str)
+                      lcov.append(f'DA:{line_no},{hits}'); lf += 1
+                      if hits > 0: lh += 1
+                  line_no += 1
+              lcov.extend([f'LF:{lf}', f'LH:{lh}', 'end_of_record'])
+              i += 1
           with open('coverage.lcov','w') as f: f.write('\n'.join(lcov)+'\n')
           print(f'Converted {sum(1 for l in lcov if l.startswith(\"SF:\"))} files to LCOV')
           "
