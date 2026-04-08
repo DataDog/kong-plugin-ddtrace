@@ -44,7 +44,7 @@ jobs:
         if: always()
         run: |
           python3 -c "
-          import re, sys
+          import re
           lcov = []
           with open('luacov.report.out') as f:
               lines = f.readlines()
@@ -54,14 +54,18 @@ jobs:
               if re.match(r'^={10,}$', line):
                   sep_count += 1
                   if sep_count == 2:
-                      sep_count = 0
+                      sep_count = 0  # Now in coverage-data section
                   elif sep_count == 1:
                       if fname:
                           lcov.append(f'LF:{lf}'); lcov.append(f'LH:{lh}'); lcov.append('end_of_record')
                       fname = None; lf = lh = 0
                   continue
-              if sep_count == 1:
-                  fname = line.strip(); lcov.append(f'SF:{fname}'); sep_count = 0; continue
+              if sep_count == 1 and not fname:
+                  candidate = line.strip()
+                  if candidate and candidate.lower() != 'summary':
+                      fname = candidate; lcov.append(f'SF:{fname}')
+                  # Do NOT reset sep_count here; let next === become sep_count=2
+                  continue
               if not fname: continue
               m = re.match(r'^(\*{5}0|\s*\d+)\s+(\d+)\t', line)
               if not m: continue
