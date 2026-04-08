@@ -20,6 +20,7 @@ dependencies = {
 build = {
     type = "builtin",
     modules = {
+        ["kong.plugins.ddtrace.tracer"] = "kong/plugins/ddtrace/tracer.lua",
         ["kong.plugins.ddtrace.agent_writer"] = "kong/plugins/ddtrace/agent_writer.lua",
         ["kong.plugins.ddtrace.datadog_propagation"] = "kong/plugins/ddtrace/datadog_propagation.lua",
         ["kong.plugins.ddtrace.handler"] = "kong/plugins/ddtrace/handler.lua",
