@@ -71,10 +71,6 @@ jobs:
           with open('coverage.lcov','w') as f: f.write('\n'.join(lcov)+'\n')
           print(f'Converted {sum(1 for l in lcov if l.startswith(\"SF:\"))} files to LCOV')
           "
-      - name: Debug luacov.report.out
-        run: head -30 luacov.report.out || echo "File not found"
-      - name: Debug coverage.lcov
-        run: head -20 coverage.lcov || echo "File not found"
       - name: Get Datadog credentials
         id: dd-sts
         continue-on-error: true
