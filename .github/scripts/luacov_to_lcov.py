@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 """Convert luacov.report.out to LCOV format for Datadog Code Coverage upload.
 
-Background:
-  - Datadog Code Coverage does not natively support luacov's report format. Supported
-    formats are: LCOV, Cobertura XML, JaCoCo XML, Clover, OpenCover, SimpleCov, Go Coverprofile.
-  - pongo runs tests inside a Docker container mounted at /kong-plugin/, so luacov
-    generates luacov.report.out with container-absolute paths (SF:/kong-plugin/...).
-  - We convert to LCOV and pass base-path=/kong-plugin to the upload tool, which strips
-    the container prefix and resolves paths relative to the repo root.
+Datadog Code Coverage does not natively support luacov's report format. Supported
+formats are: LCOV, Cobertura XML, JaCoCo XML, Clover, OpenCover, SimpleCov, Go Coverprofile.
+This script converts luacov's output to LCOV so it can be uploaded to Datadog.
 
 luacov.report.out format (per section):
   ======...======   (separator, 30+ = signs)
