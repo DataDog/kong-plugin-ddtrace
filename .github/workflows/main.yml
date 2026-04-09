@@ -39,35 +39,7 @@ jobs:
           slug: DataDog/kong-plugin-ddtrace
       - name: Convert luacov to LCOV
         if: always()
-        run: |
-          python3 -c "
-          import re
-          with open('luacov.report.out') as f:
-              content = f.read()
-          sections = re.split(r'(?m)^={30,}\n', content)
-          lcov = []
-          i = 1
-          while i < len(sections):
-              fname = sections[i].strip()
-              if not fname:
-                  i += 1; continue
-              i += 1
-              data = sections[i] if i < len(sections) else ''
-              lcov.append(f'SF:{fname}')
-              lf = lh = 0; line_no = 1
-              for line in data.splitlines():
-                  m = re.match(r'^(\*{3}0|\s*(\d+))\s', line)
-                  if m:
-                      hits_str = m.group(1).strip()
-                      hits = 0 if hits_str.startswith('*') else int(hits_str)
-                      lcov.append(f'DA:{line_no},{hits}'); lf += 1
-                      if hits > 0: lh += 1
-                  line_no += 1
-              lcov.extend([f'LF:{lf}', f'LH:{lh}', 'end_of_record'])
-              i += 1
-          with open('coverage.lcov','w') as f: f.write('\n'.join(lcov)+'\n')
-          print(f'Converted {sum(1 for l in lcov if l.startswith(\"SF:\"))} files to LCOV')
-          "
+        run: python3 .github/scripts/luacov_to_lcov.py
       - name: Get Datadog credentials
         id: dd-sts
         continue-on-error: true
