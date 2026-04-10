@@ -106,8 +106,14 @@ ffi.metatype("struct dd_conf_s", {
 -------------------------------------------------------------------------------
 
 local function span_set_tag(self, key, value)
-    assert(type(key) == "string", "span:set_tag: key must be a string")
+    if type(key) ~= "string" then
+        return
+    end
     if value == nil then
+        return
+    end
+    local vt = type(value)
+    if vt ~= "string" and vt ~= "number" and vt ~= "boolean" then
         return
     end
     lib.dd_span_set_tag(self, key, tostring(value))
@@ -118,12 +124,16 @@ local function span_set_error(self)
 end
 
 local function span_set_service(self, service)
-    assert(type(service) == "string", "span:set_service: service must be a string")
+    if type(service) ~= "string" then
+        return
+    end
     lib.dd_span_set_service(self, service)
 end
 
 local function span_inject(self, header_setter)
-    assert(type(header_setter) == "function", "span:inject: header_setter must be a function")
+    if type(header_setter) ~= "function" then
+        return
+    end
     local setter_cb = ffi.cast("void (*)(const char*, const char*)", function(key, value)
         header_setter(ffi.string(key), ffi.string(value))
     end)
@@ -142,7 +152,7 @@ local function span_trace_id(self)
     local buf = ffi.new("char[?]", TRACE_ID_BUF_SIZE)
     local len = lib.dd_span_get_trace_id(self, buf, TRACE_ID_BUF_SIZE)
     if len < 0 then
-        return nil
+        return nil, "failed to get trace ID"
     end
     return ffi.string(buf, len)
 end
@@ -151,17 +161,22 @@ local function span_span_id(self)
     local buf = ffi.new("char[?]", SPAN_ID_BUF_SIZE)
     local len = lib.dd_span_get_span_id(self, buf, SPAN_ID_BUF_SIZE)
     if len < 0 then
-        return nil
+        return nil, "failed to get span ID"
     end
     return ffi.string(buf, len)
 end
 
 local function span_create_child(self, name, resource)
-    assert(type(name) == "string", "span:create_child: name must be a string")
+    if type(name) ~= "string" then
+        return nil, "span:create_child: name must be a string"
+    end
+    if type(resource) ~= "string" then
+        return nil, "span:create_child: resource must be a string"
+    end
     local opts = ffi.new("dd_span_options_t", { name, resource })
     local span = lib.dd_span_create_child(self, opts)
     if span == nil then
-        return nil
+        return nil, "failed to create child span"
     end
     return ffi.gc(span, lib.dd_span_free)
 end
@@ -184,11 +199,16 @@ ffi.metatype("struct dd_span_s", {
 -------------------------------------------------------------------------------
 
 local function tracer_create_span(self, name, resource)
-    assert(type(name) == "string", "tracer:create_span: name must be a string")
+    if type(name) ~= "string" then
+        return nil, "tracer:create_span: name must be a string"
+    end
+    if type(resource) ~= "string" then
+        return nil, "tracer:create_span: resource must be a string"
+    end
     local opts = ffi.new("dd_span_options_t", { name, resource })
     local span = lib.dd_tracer_create_span(self, opts)
     if span == nil then
-        return nil
+        return nil, "failed to create span"
     end
     return ffi.gc(span, lib.dd_span_free)
 end
@@ -281,15 +301,19 @@ end
 --- @param resource string span resource name
 --- @return span handle with metatype methods, or nil
 local function extract_or_create_span(tracer, header_getter, name, resource)
-    assert(type(name) == "string", "extract_or_create_span: name must be a string")
-    assert(type(resource) == "string", "extract_or_create_span: resource must be a string")
+    if type(name) ~= "string" then
+        return nil, "extract_or_create_span: name must be a string"
+    end
+    if type(resource) ~= "string" then
+        return nil, "extract_or_create_span: resource must be a string"
+    end
+    if type(header_getter) ~= "function" then
+        return nil, "extract_or_create_span: header_getter must be a function"
+    end
 
     local pinned_strings = {}
 
     local getter_cb = ffi.cast("const char* (*)(const char*)", function(header_name)
-        if header_getter == nil then
-            return nil
-        end
         local hname = ffi.string(header_name)
         local value = header_getter(hname)
         -- kong.request.get_header can return a table for multi-value headers;
@@ -316,7 +340,7 @@ local function extract_or_create_span(tracer, header_getter, name, resource)
 
     -- NOTE: Must use == nil for FFI pointers; NULL cdata is truthy in LuaJIT.
     if span_or_err == nil then
-        return nil
+        return nil, "failed to extract or create span"
     end
 
     -- Wrap in ffi.gc as a safety net: if an error prevents explicit span:finish(),

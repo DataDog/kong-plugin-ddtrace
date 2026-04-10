@@ -40,7 +40,7 @@ describe("ddtrace: span", function()
             span:finish()
         end)
 
-        it("creates a root span with incoming datadog headers", function()
+        it("extracts trace context from incoming datadog headers", function()
             local getter = function(name)
                 if name == "x-datadog-trace-id" then
                     return "12345"
@@ -52,8 +52,9 @@ describe("ddtrace: span", function()
             end
             local span = ddtrace.extract_or_create_span(tracer, getter, "test.op", "/test")
             assert.is_not_nil(span)
-            -- Verify extraction produced a valid trace ID
-            assert.is_string(span:trace_id())
+            -- dd-trace-cpp returns zero-padded 128-bit hex trace IDs.
+            -- Convert back to number and compare with the decimal input.
+            assert.are.equal(12345, tonumber(span:trace_id(), 16))
             span:finish()
         end)
     end)
@@ -109,10 +110,18 @@ describe("ddtrace: span", function()
             span:finish()
         end)
 
-        it("asserts on non-string key", function()
+        it("silently skips non-string key", function()
             local span = ddtrace.extract_or_create_span(tracer, empty_header_getter, "test.op", "/test")
-            assert.has_error(function()
+            assert.has_no.errors(function()
                 span:set_tag(123, "value")
+            end)
+            span:finish()
+        end)
+
+        it("silently skips table value", function()
+            local span = ddtrace.extract_or_create_span(tracer, empty_header_getter, "test.op", "/test")
+            assert.has_no.errors(function()
+                span:set_tag("key", { "a", "b" })
             end)
             span:finish()
         end)
