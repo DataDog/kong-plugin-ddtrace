@@ -107,14 +107,14 @@ ffi.metatype("struct dd_conf_s", {
 
 local function span_set_tag(self, key, value)
     if type(key) ~= "string" then
-        return
+        return nil, "span:set_tag: key must be a string"
     end
     if value == nil then
-        return
+        return nil, "span:set_tag: value must not be nil"
     end
-    local vt = type(value)
-    if vt ~= "string" and vt ~= "number" and vt ~= "boolean" then
-        return
+    local value_type = type(value)
+    if value_type ~= "string" and value_type ~= "number" and value_type ~= "boolean" then
+        return nil, "span:set_tag: value must be a string, number, or boolean"
     end
     lib.dd_span_set_tag(self, key, tostring(value))
 end
@@ -125,14 +125,14 @@ end
 
 local function span_set_service(self, service)
     if type(service) ~= "string" then
-        return
+        return nil, "span:set_service: service must be a string"
     end
     lib.dd_span_set_service(self, service)
 end
 
 local function span_inject(self, header_setter)
     if type(header_setter) ~= "function" then
-        return
+        return nil, "span:inject: header_setter must be a function"
     end
     local setter_cb = ffi.cast("void (*)(const char*, const char*)", function(key, value)
         header_setter(ffi.string(key), ffi.string(value))
@@ -140,7 +140,7 @@ local function span_inject(self, header_setter)
     local inject_ok, inject_err = pcall(lib.dd_span_inject, self, setter_cb)
     setter_cb:free()
     if not inject_ok then
-        error(inject_err)
+        return nil, inject_err
     end
 end
 
@@ -148,19 +148,19 @@ local function span_finish(self)
     lib.dd_span_finish(self)
 end
 
-local function span_trace_id(self)
+local function span_get_trace_id(self)
     local buf = ffi.new("char[?]", TRACE_ID_BUF_SIZE)
     local len = lib.dd_span_get_trace_id(self, buf, TRACE_ID_BUF_SIZE)
-    if len < 0 then
+    if len <= 0 then
         return nil, "failed to get trace ID"
     end
     return ffi.string(buf, len)
 end
 
-local function span_span_id(self)
+local function span_get_span_id(self)
     local buf = ffi.new("char[?]", SPAN_ID_BUF_SIZE)
     local len = lib.dd_span_get_span_id(self, buf, SPAN_ID_BUF_SIZE)
-    if len < 0 then
+    if len <= 0 then
         return nil, "failed to get span ID"
     end
     return ffi.string(buf, len)
@@ -188,8 +188,8 @@ ffi.metatype("struct dd_span_s", {
         set_service = span_set_service,
         inject = span_inject,
         finish = span_finish,
-        trace_id = span_trace_id,
-        span_id = span_span_id,
+        get_trace_id = span_get_trace_id,
+        get_span_id = span_get_span_id,
         create_child = span_create_child,
     },
 })
@@ -321,7 +321,7 @@ local function extract_or_create_span(tracer, header_getter, name, resource)
         if type(value) == "table" then
             value = value[1]
         end
-        if value then
+        if value ~= nil then
             pinned_strings[#pinned_strings + 1] = value
             return ffi.cast("const char*", value)
         end
@@ -335,7 +335,7 @@ local function extract_or_create_span(tracer, header_getter, name, resource)
     getter_cb:free()
 
     if not extract_ok then
-        error(span_or_err)
+        return nil, span_or_err
     end
 
     -- NOTE: Must use == nil for FFI pointers; NULL cdata is truthy in LuaJIT.
