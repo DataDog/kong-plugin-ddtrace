@@ -2,8 +2,7 @@ local ffi = require("ffi")
 
 -- C function declarations (from dd-trace-cpp/binding/c/include/datadog/c/tracer.h).
 -- All types and functions are declared here since ffi.cdef is global and can only
--- define each type once. Span functions are declared here but their metatype methods
--- are defined in a separate span module (PR 2).
+-- define each type once.
 ffi.cdef([[
     typedef const char* (*dd_context_read_callback)(const char* key);
     typedef void (*dd_context_write_callback)(const char* key, const char* value);
@@ -88,6 +87,11 @@ local DD_OPT_AGENT_URL = 3
 local DD_OPT_INTEGRATION_NAME = 4
 local DD_OPT_INTEGRATION_VERSION = 5
 
+-- Buffer sizes for hex-encoded IDs (128-bit trace ID = 32 hex chars + NUL,
+-- 64-bit span ID = 16 hex chars + NUL).
+local TRACE_ID_BUF_SIZE = 33
+local SPAN_ID_BUF_SIZE = 17
+
 -- Attach methods to TracerConfig via ffi.metatype.
 -- dd_tracer_conf_set copies string values internally; the Lua string pointers
 -- passed via ffi.cast are not retained after the call returns.
@@ -97,19 +101,127 @@ ffi.metatype("struct dd_conf_s", {
     },
 })
 
--- Attach methods to Tracer via ffi.metatype.
-ffi.metatype("struct dd_tracer_s", {
+-------------------------------------------------------------------------------
+-- Span methods (attached to struct dd_span_s via ffi.metatype)
+-------------------------------------------------------------------------------
+
+local function span_set_tag(self, key, value)
+    if type(key) ~= "string" then
+        return nil, "span:set_tag: key must be a string"
+    end
+    if value == nil then
+        return nil, "span:set_tag: value must not be nil"
+    end
+    local value_type = type(value)
+    if value_type ~= "string" and value_type ~= "number" and value_type ~= "boolean" then
+        return nil, "span:set_tag: value must be a string, number, or boolean"
+    end
+    lib.dd_span_set_tag(self, key, tostring(value))
+end
+
+local function span_set_error(self)
+    lib.dd_span_set_error(self, 1)
+end
+
+local function span_set_service(self, service)
+    if type(service) ~= "string" then
+        return nil, "span:set_service: service must be a string"
+    end
+    lib.dd_span_set_service(self, service)
+end
+
+local function span_inject(self, header_setter)
+    if type(header_setter) ~= "function" then
+        return nil, "span:inject: header_setter must be a function"
+    end
+    local setter_cb = ffi.cast("void (*)(const char*, const char*)", function(key, value)
+        header_setter(ffi.string(key), ffi.string(value))
+    end)
+    local inject_ok, inject_err = pcall(lib.dd_span_inject, self, setter_cb)
+    setter_cb:free()
+    if not inject_ok then
+        return nil, inject_err
+    end
+end
+
+local function span_finish(self)
+    lib.dd_span_finish(self)
+end
+
+local function span_get_trace_id(self)
+    local buf = ffi.new("char[?]", TRACE_ID_BUF_SIZE)
+    local len = lib.dd_span_get_trace_id(self, buf, TRACE_ID_BUF_SIZE)
+    if len <= 0 then
+        return nil, "failed to get trace ID"
+    end
+    return ffi.string(buf, len)
+end
+
+local function span_get_span_id(self)
+    local buf = ffi.new("char[?]", SPAN_ID_BUF_SIZE)
+    local len = lib.dd_span_get_span_id(self, buf, SPAN_ID_BUF_SIZE)
+    if len <= 0 then
+        return nil, "failed to get span ID"
+    end
+    return ffi.string(buf, len)
+end
+
+local function span_create_child(self, name, resource)
+    if type(name) ~= "string" then
+        return nil, "span:create_child: name must be a string"
+    end
+    if type(resource) ~= "string" then
+        return nil, "span:create_child: resource must be a string"
+    end
+    local opts = ffi.new("dd_span_options_t", { name, resource })
+    local span = lib.dd_span_create_child(self, opts)
+    if span == nil then
+        return nil, "failed to create child span"
+    end
+    return ffi.gc(span, lib.dd_span_free)
+end
+
+ffi.metatype("struct dd_span_s", {
     __index = {
-        create_span = function(self, name, resource)
-            local opts = ffi.new("dd_span_options_t", { name, resource })
-            local span = lib.dd_tracer_create_span(self, opts)
-            if span == nil then
-                return nil
-            end
-            return ffi.gc(span, lib.dd_span_free)
-        end,
+        set_tag = span_set_tag,
+        set_error = span_set_error,
+        set_service = span_set_service,
+        inject = span_inject,
+        finish = span_finish,
+        get_trace_id = span_get_trace_id,
+        get_span_id = span_get_span_id,
+        create_child = span_create_child,
     },
 })
+
+-------------------------------------------------------------------------------
+-- Tracer methods (attached to struct dd_tracer_s via ffi.metatype)
+-------------------------------------------------------------------------------
+
+local function tracer_create_span(self, name, resource)
+    if type(name) ~= "string" then
+        return nil, "tracer:create_span: name must be a string"
+    end
+    if type(resource) ~= "string" then
+        return nil, "tracer:create_span: resource must be a string"
+    end
+    local opts = ffi.new("dd_span_options_t", { name, resource })
+    local span = lib.dd_tracer_create_span(self, opts)
+    if span == nil then
+        return nil, "failed to create span"
+    end
+    return ffi.gc(span, lib.dd_span_free)
+end
+
+ffi.metatype("struct dd_tracer_s", {
+    __index = {
+        create_span = tracer_create_span,
+    },
+})
+
+-------------------------------------------------------------------------------
+-- Tracer lifecycle
+-------------------------------------------------------------------------------
 
 -- This cache is keyed on Kong's config object. Setting the mode to weak ensures
 -- the keys will get garbage-collected when the config object's lifecycle is completed.
@@ -176,7 +288,68 @@ local function get_or_create(kong_conf, config)
     return tracer_cache[kong_conf]
 end
 
+-------------------------------------------------------------------------------
+-- Span extraction (module-level function, needs callback setup)
+-------------------------------------------------------------------------------
+
+--- Extract trace context from incoming headers, or create a new root span.
+--- Handles FFI callback setup, string pinning, and cleanup internally.
+---
+--- @param tracer tracer handle
+--- @param header_getter function(name) -> string|table|nil
+--- @param name string span operation name
+--- @param resource string span resource name
+--- @return span handle with metatype methods, or nil
+local function extract_or_create_span(tracer, header_getter, name, resource)
+    if type(name) ~= "string" then
+        return nil, "extract_or_create_span: name must be a string"
+    end
+    if type(resource) ~= "string" then
+        return nil, "extract_or_create_span: resource must be a string"
+    end
+    if type(header_getter) ~= "function" then
+        return nil, "extract_or_create_span: header_getter must be a function"
+    end
+
+    local pinned_strings = {}
+
+    local getter_cb = ffi.cast("const char* (*)(const char*)", function(header_name)
+        local hname = ffi.string(header_name)
+        local value = header_getter(hname)
+        -- kong.request.get_header can return a table for multi-value headers;
+        -- propagation headers are single-valued, so take the first element.
+        if type(value) == "table" then
+            value = value[1]
+        end
+        if value ~= nil then
+            pinned_strings[#pinned_strings + 1] = value
+            return ffi.cast("const char*", value)
+        end
+        return nil
+    end)
+
+    local opts = ffi.new("dd_span_options_t", { name, resource })
+    local extract_ok, span_or_err = pcall(lib.dd_tracer_extract_or_create_span, tracer, getter_cb, opts)
+
+    -- Always clean up callback, even on error.
+    getter_cb:free()
+
+    if not extract_ok then
+        return nil, span_or_err
+    end
+
+    -- NOTE: Must use == nil for FFI pointers; NULL cdata is truthy in LuaJIT.
+    if span_or_err == nil then
+        return nil, "failed to extract or create span"
+    end
+
+    -- Wrap in ffi.gc as a safety net: if an error prevents explicit span:finish(),
+    -- the GC will eventually free the C++ span to prevent memory leaks.
+    return ffi.gc(span_or_err, lib.dd_span_free)
+end
+
 return {
     make_tracer = make_tracer,
     get_or_create = get_or_create,
+    extract_or_create_span = extract_or_create_span,
 }
