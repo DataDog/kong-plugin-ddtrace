@@ -1,14 +1,10 @@
-local new_sampler = require("kong.plugins.ddtrace.sampler").new
-local new_trace_agent_writer = require("kong.plugins.ddtrace.agent_writer").new
-local new_propagator = require("kong.plugins.ddtrace.propagation").new
+local ddtrace = require("kong.plugins.ddtrace.tracer")
 local utils = require("kong.plugins.ddtrace.utils")
-local time_ns = utils.time_ns
 local cjson = require("cjson")
 
 local pcall = pcall
 local fmt = string.format
 local strsub = string.sub
-local btohex = bit.tohex
 local regex = ngx.re
 local subsystem = ngx.config.subsystem
 
@@ -20,15 +16,6 @@ local DatadogTraceHandler = {
     PRIORITY = 100000,
 }
 
--- This cache is keyed on Kong's config object. Setting the mode to weak ensures
--- the keys will get garbage-collected when the config object's lifecycle is completed.
-local agent_writer_cache = setmetatable({}, { __mode = "k" })
-
--- This timer runs in the background to flush traces for all instances of the plugin.
--- Because of the way timers work in lua, this can only be initialized when there's an
--- active request. This gets initialized on the first request this plugin handles.
-local propagator
-local sampler
 local header_tags
 local ddtrace_conf
 
@@ -49,18 +36,15 @@ local ngx_worker_id = ngx.worker.id()
 local ngx_worker_count = ngx.worker.count()
 local kong_node_id = kong.node.get_id()
 
-local function get_agent_writer(conf, agent_url)
-    if agent_writer_cache[conf] == nil then
-        agent_writer_cache[conf] = new_trace_agent_writer(agent_url, sampler, DatadogTraceHandler.VERSION)
-    end
-    return agent_writer_cache[conf]
-end
-
 local function expose_tracing_variables(span)
     -- Expose traceID and parentID for other plugin to consume and also set an NGINX variable
     -- that can be use for in `log_format` directive for correlation with logs.
-    local trace_id = btohex(span.trace_id.high or 0, 16) .. btohex(span.trace_id.low, 16)
-    local span_id = btohex(span.span_id, 16)
+    local trace_id = span:get_trace_id()
+    local span_id = span:get_span_id()
+
+    if trace_id == nil or span_id == nil then
+        return
+    end
 
     -- NOTE: kong.ctx has the same lifetime as the current request.
     local kong_shared = kong.ctx.shared
@@ -72,7 +56,7 @@ local function expose_tracing_variables(span)
         ngx.var.datadog_trace_id = trace_id
     end
     if ngx.var.datadog_span_id ~= nil then
-        ngx.var.datadog_span_id = trace_id
+        ngx.var.datadog_span_id = span_id
     end
 end
 
@@ -168,49 +152,34 @@ local function configure(conf)
         kong.log.info("DATADOG TRACER CONFIGURATION - " .. cjson.encode(ddtrace_conf))
     end
 
-    sampler = new_sampler(math.ceil(conf.initial_samples_per_second / ngx_worker_count), conf.initial_sample_rate)
-    propagator = new_propagator(
-        ddtrace_conf.extraction_propagation_styles,
-        ddtrace_conf.injection_propagation_styles,
-        conf.max_header_size
-    )
-
     if conf and conf.header_tags then
         header_tags = utils.normalize_header_tags(conf.header_tags)
     end
 end
 
-local function make_root_span(conf, start_timestamp)
+local function make_root_span(conf, resource)
     local req = kong.request
     local method = req.get_method()
     local path = req.get_path()
 
-    local span_options = {
+    local tracer, tracer_err = ddtrace.get_or_create(conf, {
         service = conf.service_name or ddtrace_conf.service,
-        name = "kong.request",
-        start_us = start_timestamp,
-        -- TODO: decrease cardinality of path value
-        resource = method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule),
-        generate_128bit_trace_ids = conf.generate_128bit_trace_ids,
-    }
-
-    local request_span = propagator:extract_or_create_span(req, span_options)
-
-    -- Set datadog tags
-    if ddtrace_conf.environment then
-        request_span:set_tag("env", ddtrace_conf.environment)
-    end
-    if ddtrace_conf.version then
-        request_span:set_tag("version", ddtrace_conf.version)
+        environment = ddtrace_conf.environment,
+        version = ddtrace_conf.version,
+        agent_url = ddtrace_conf.agent_url,
+        integration_name = "kong",
+        integration_version = DatadogTraceHandler.VERSION,
+    })
+    if tracer == nil then
+        kong.log.err("failed to create tracer: ", tracer_err)
+        return nil
     end
 
-    -- TODO: decide about deferring sampling decision until injection or not
-    if not request_span.sampling_priority then
-        sampler:sample(request_span)
+    local request_span = ddtrace.extract_or_create_span(tracer, req.get_header, "kong.request", resource)
+    if request_span == nil then
+        kong.log.err("failed to create root span")
+        return nil
     end
-
-    -- Add metrics
-    request_span.metrics["_dd.top_level"] = 1
 
     -- Set standard tags
     request_span:set_tag("component", "kong")
@@ -255,24 +224,24 @@ end
 
 local function access(conf)
     -- Create the root span here because we have no guarantee to be called on the `rewrite` phase.
-    local now = time_ns() * 1LL
-    local access_start = now
-
     local ctx = kong.ctx.plugin
-    local root_span = make_root_span(conf, ngx.ctx.KONG_PROCESSING_START * 1000000LL)
+    local req = kong.request
+    local method = req.get_method()
+    local path = req.get_path()
+    local resource = method .. " " .. apply_resource_name_rules(path, conf.resource_name_rule)
+
+    local root_span = make_root_span(conf, resource)
+    if root_span == nil then
+        return
+    end
 
     -- TODO: if KONG_PROXIED then
-    local proxy_span = root_span:new_child("kong.proxy", root_span.resource, access_start)
+    local proxy_span = root_span:create_child("kong.proxy", resource)
     expose_tracing_variables(proxy_span)
 
-    local request = {
-        get_header = kong.request.get_header,
-        set_header = kong.service.request.set_header,
-    }
-
-    local err = propagator:inject(request, proxy_span)
-    if err then
-        kong.log.error("Failed to inject trace (id: " .. root_span.trace_id .. "). Reason: " .. err)
+    local ok, err = proxy_span:inject(kong.service.request.set_header)
+    if not ok then
+        kong.log.err("failed to inject ddtrace propagation headers: ", err)
     end
 
     ctx.request_span = root_span
@@ -280,7 +249,6 @@ local function access(conf)
 end
 
 local function header_filter(_)
-    local now = time_ns() * 1LL
     local ngx_ctx = ngx.ctx
 
     local ctx = kong.ctx.plugin
@@ -319,7 +287,7 @@ local function header_filter(_)
     if service and service.id then
         span:set_tag("kong.service", service.id)
         if type(service.name) == "string" then
-            span.service_name = service.name
+            span:set_service(service.name)
             span:set_tag("kong.service_name", service.name)
         end
     end
@@ -339,15 +307,13 @@ local function header_filter(_)
     local status_code = kong.response.get_status()
     span:set_tag("http.status_code", status_code)
     if status_code >= 500 then
-        span:set_tag("error", true)
-        span.error = status_code
+        span:set_error()
     end
 
-    span:finish(now)
+    span:finish()
 end
 
 local function log(conf)
-    local now = time_ns() * 1LL
     local ngx_ctx = ngx.ctx
 
     local ctx = kong.ctx.plugin
@@ -356,10 +322,22 @@ local function log(conf)
     end
 
     local request_span = ctx.request_span
-    local agent_writer = get_agent_writer(conf, ddtrace_conf.agent_url)
 
     if header_tags then
-        request_span:set_http_header_tags(header_tags, kong.request.get_header, kong.response.get_header)
+        for header_name, tag_info in pairs(header_tags) do
+            local req_value = kong.request.get_header(header_name)
+            local res_value = kong.response.get_header(header_name)
+
+            if req_value then
+                local tag = (tag_info.normalized and "http.request.headers." .. tag_info.value) or tag_info.value
+                request_span:set_tag(tag, utils.concat(req_value, ","))
+            end
+
+            if res_value then
+                local tag = (tag_info.normalized and "http.response.headers." .. tag_info.value) or tag_info.value
+                request_span:set_tag(tag, utils.concat(res_value, ","))
+            end
+        end
     end
 
     if ngx_ctx.authenticated_consumer then
@@ -369,8 +347,7 @@ local function log(conf)
         request_span:set_tag("kong.credential", ngx_ctx.authenticated_credential.id)
     end
 
-    request_span:finish(now)
-    agent_writer:enqueue_trace({ request_span, ctx.proxy_span })
+    request_span:finish()
 
     ctx.proxy_span = nil
     ctx.request_span = nil
