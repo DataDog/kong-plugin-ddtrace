@@ -14,6 +14,7 @@ ffi.cdef([[
         const char* service_type;
         const char* environment;
         const char* version;
+        int64_t start_time_ns;
     } dd_span_options_t;
 
     typedef enum {
@@ -53,6 +54,7 @@ ffi.cdef([[
         dd_span_options_t options);
 
     void dd_span_finish(dd_span_t* span_handle);
+    void dd_span_set_end_time(dd_span_t* span_handle, int64_t end_time_ns);
     void dd_span_free(dd_span_t* span_handle);
 
     void dd_span_set_tag(dd_span_t* span_handle, const char* key, const char* value);
@@ -86,6 +88,18 @@ local DD_OPT_VERSION = 2
 local DD_OPT_AGENT_URL = 3
 local DD_OPT_INTEGRATION_NAME = 4
 local DD_OPT_INTEGRATION_VERSION = 5
+
+-- Matches DD_TRACE_CURRENT_TIME in the C header: sentinel meaning "use current
+-- time". Must be assigned explicitly because ffi.new zero-inits to epoch 1970.
+local DD_TRACE_CURRENT_TIME = -1LL
+
+local function new_span_options(name, resource, start_time_ns)
+    return ffi.new("dd_span_options_t", {
+        name = name,
+        resource = resource,
+        start_time_ns = start_time_ns or DD_TRACE_CURRENT_TIME,
+    })
+end
 
 -- Buffer sizes for hex-encoded IDs (128-bit trace ID = 32 hex chars + NUL,
 -- 64-bit span ID = 16 hex chars + NUL).
@@ -142,10 +156,21 @@ local function span_inject(self, header_setter)
     if not inject_ok then
         return nil, inject_err
     end
+
+    return true
 end
 
-local function span_finish(self)
-    lib.dd_span_finish(self)
+local function span_finish(self, end_time_ns)
+    if end_time_ns == nil or end_time_ns == 0 then
+        lib.dd_span_finish(self)
+    else
+        lib.dd_span_set_end_time(self, end_time_ns)
+    end
+end
+
+local function span_free(self)
+    ffi.gc(self, nil)
+    lib.dd_span_free(self)
 end
 
 local function span_get_trace_id(self)
@@ -166,15 +191,14 @@ local function span_get_span_id(self)
     return ffi.string(buf, len)
 end
 
-local function span_create_child(self, name, resource)
+local function span_create_child(self, name, resource, start_time_ns)
     if type(name) ~= "string" then
         return nil, "span:create_child: name must be a string"
     end
     if type(resource) ~= "string" then
         return nil, "span:create_child: resource must be a string"
     end
-    local opts = ffi.new("dd_span_options_t", { name, resource })
-    local span = lib.dd_span_create_child(self, opts)
+    local span = lib.dd_span_create_child(self, new_span_options(name, resource, start_time_ns))
     if span == nil then
         return nil, "failed to create child span"
     end
@@ -188,6 +212,7 @@ ffi.metatype("struct dd_span_s", {
         set_service = span_set_service,
         inject = span_inject,
         finish = span_finish,
+        free = span_free,
         get_trace_id = span_get_trace_id,
         get_span_id = span_get_span_id,
         create_child = span_create_child,
@@ -198,15 +223,14 @@ ffi.metatype("struct dd_span_s", {
 -- Tracer methods (attached to struct dd_tracer_s via ffi.metatype)
 -------------------------------------------------------------------------------
 
-local function tracer_create_span(self, name, resource)
+local function tracer_create_span(self, name, resource, start_time_ns)
     if type(name) ~= "string" then
         return nil, "tracer:create_span: name must be a string"
     end
     if type(resource) ~= "string" then
         return nil, "tracer:create_span: resource must be a string"
     end
-    local opts = ffi.new("dd_span_options_t", { name, resource })
-    local span = lib.dd_tracer_create_span(self, opts)
+    local span = lib.dd_tracer_create_span(self, new_span_options(name, resource, start_time_ns))
     if span == nil then
         return nil, "failed to create span"
     end
@@ -299,8 +323,9 @@ end
 --- @param header_getter function(name) -> string|table|nil
 --- @param name string span operation name
 --- @param resource string span resource name
+--- @param start_time_ns number|nil wall-clock ns since epoch; nil = use current time
 --- @return span handle with metatype methods, or nil
-local function extract_or_create_span(tracer, header_getter, name, resource)
+local function extract_or_create_span(tracer, header_getter, name, resource, start_time_ns)
     if type(name) ~= "string" then
         return nil, "extract_or_create_span: name must be a string"
     end
@@ -328,7 +353,7 @@ local function extract_or_create_span(tracer, header_getter, name, resource)
         return nil
     end)
 
-    local opts = ffi.new("dd_span_options_t", { name, resource })
+    local opts = new_span_options(name, resource, start_time_ns)
     local extract_ok, span_or_err = pcall(lib.dd_tracer_extract_or_create_span, tracer, getter_cb, opts)
 
     -- Always clean up callback, even on error.
