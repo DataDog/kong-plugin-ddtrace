@@ -8,6 +8,8 @@ local strsub = string.sub
 local regex = ngx.re
 local subsystem = ngx.config.subsystem
 
+local NS_PER_MS = 1000000LL
+
 local DatadogTraceHandler = {
     VERSION = "0.2.4",
     -- We want to run first so that timestamps taken are at start of the phase.
@@ -152,6 +154,19 @@ local function configure(conf)
         kong.log.info("DATADOG TRACER CONFIGURATION - " .. cjson.encode(ddtrace_conf))
     end
 
+    local tracer, tracer_err = ddtrace.make_tracer({
+        service = ddtrace_conf.service,
+        environment = ddtrace_conf.environment,
+        version = ddtrace_conf.version,
+        agent_url = ddtrace_conf.agent_url,
+        integration_name = "kong",
+        integration_version = DatadogTraceHandler.VERSION,
+    })
+    if tracer == nil then
+        kong.log.err("failed to create tracer: ", tracer_err)
+    end
+    ddtrace_conf.tracer = tracer
+
     if conf and conf.header_tags then
         header_tags = utils.normalize_header_tags(conf.header_tags)
     end
@@ -162,69 +177,66 @@ local function make_root_span(conf, resource)
     local method = req.get_method()
     local path = req.get_path()
 
-    local tracer, tracer_err = ddtrace.get_or_create(conf, {
-        service = conf.service_name or ddtrace_conf.service,
-        environment = ddtrace_conf.environment,
-        version = ddtrace_conf.version,
-        agent_url = ddtrace_conf.agent_url,
-        integration_name = "kong",
-        integration_version = DatadogTraceHandler.VERSION,
-    })
+    local tracer = ddtrace_conf and ddtrace_conf.tracer or nil
     if tracer == nil then
-        kong.log.err("failed to create tracer: ", tracer_err)
+        kong.log.err("tracer is missing; configure() may have failed")
         return nil
     end
 
-    local request_span = ddtrace.extract_or_create_span(tracer, req.get_header, "kong.request", resource)
-    if request_span == nil then
+    local start_time_ns = ngx.ctx.KONG_PROCESSING_START * NS_PER_MS
+    local root_span = ddtrace.extract_or_create_span(tracer, req.get_header, "kong.request", resource, start_time_ns)
+    if root_span == nil then
         kong.log.err("failed to create root span")
         return nil
     end
 
+    root_span:set_service(conf.service_name or ddtrace_conf.service)
+
     -- Set standard tags
-    request_span:set_tag("component", "kong")
-    request_span:set_tag("span.kind", "server")
+    root_span:set_tag("component", "kong")
+    root_span:set_tag("span.kind", "server")
 
     local url = req.get_scheme() .. "://" .. req.get_host() .. ":" .. req.get_port() .. path
-    request_span:set_tag("http.method", method)
-    request_span:set_tag("http.url", url)
-    request_span:set_tag("http.client_ip", kong.client.get_forwarded_ip())
-    request_span:set_tag("http.request.content_length", req.get_header("content-length"))
-    request_span:set_tag("http.useragent", req.get_header("user-agent"))
-    request_span:set_tag("http.version", req.get_http_version())
+    root_span:set_tag("http.method", method)
+    root_span:set_tag("http.url", url)
+    root_span:set_tag("http.client_ip", kong.client.get_forwarded_ip())
+    root_span:set_tag("http.request.content_length", req.get_header("content-length"))
+    root_span:set_tag("http.useragent", req.get_header("user-agent"))
+    root_span:set_tag("http.version", req.get_http_version())
 
     -- Set nginx informational tags
-    request_span:set_tag("nginx.version", ngx.config.nginx_version)
-    request_span:set_tag("nginx.lua_version", ngx.config.ngx_lua_version)
-    request_span:set_tag("nginx.worker_pid", ngx_worker_pid)
-    request_span:set_tag("nginx.worker_id", ngx_worker_id)
-    request_span:set_tag("nginx.worker_count", ngx_worker_count)
+    root_span:set_tag("nginx.version", ngx.config.nginx_version)
+    root_span:set_tag("nginx.lua_version", ngx.config.ngx_lua_version)
+    root_span:set_tag("nginx.worker_pid", ngx_worker_pid)
+    root_span:set_tag("nginx.worker_id", ngx_worker_id)
+    root_span:set_tag("nginx.worker_count", ngx_worker_count)
 
     -- Set kong informational tags
-    request_span:set_tag("kong.version", kong.version)
-    request_span:set_tag("kong.pdk_version", kong.pdk_version)
-    request_span:set_tag("kong.node_id", kong_node_id)
+    root_span:set_tag("kong.version", kong.version)
+    root_span:set_tag("kong.pdk_version", kong.pdk_version)
+    root_span:set_tag("kong.node_id", kong_node_id)
 
     if kong.configuration then
-        request_span:set_tag("kong.role", kong.configuration.role)
-        request_span:set_tag("kong.nginx_daemon", kong.configuration.nginx_daemon)
-        request_span:set_tag("kong.database", kong.configuration.database)
+        root_span:set_tag("kong.role", kong.configuration.role)
+        root_span:set_tag("kong.nginx_daemon", kong.configuration.nginx_daemon)
+        root_span:set_tag("kong.database", kong.configuration.database)
     end
 
     local static_tags = conf and conf.static_tags or nil
     if type(static_tags) == "table" then
         for i = 1, #static_tags do
             local tag = static_tags[i]
-            request_span:set_tag(tag.name, tag.value)
+            root_span:set_tag(tag.name, tag.value)
         end
     end
 
-    return request_span
+    return root_span
 end
 
 local function access(conf)
     -- Create the root span here because we have no guarantee to be called on the `rewrite` phase.
     local ctx = kong.ctx.plugin
+    local access_start_ns = ngx.ctx.KONG_ACCESS_START * NS_PER_MS
     local req = kong.request
     local method = req.get_method()
     local path = req.get_path()
@@ -236,7 +248,7 @@ local function access(conf)
     end
 
     -- TODO: if KONG_PROXIED then
-    local proxy_span = root_span:create_child("kong.proxy", resource)
+    local proxy_span = root_span:create_child("kong.proxy", resource, access_start_ns)
     expose_tracing_variables(proxy_span)
 
     local ok, err = proxy_span:inject(kong.service.request.set_header)
@@ -250,6 +262,7 @@ end
 
 local function header_filter(_)
     local ngx_ctx = ngx.ctx
+    local end_time_ns = ngx_ctx.KONG_HEADER_FILTER_START * NS_PER_MS
 
     local ctx = kong.ctx.plugin
     if ctx.proxy_span == nil then
@@ -310,11 +323,13 @@ local function header_filter(_)
         span:set_error()
     end
 
-    span:finish()
+    span:finish(end_time_ns)
+    span:free()
 end
 
 local function log(conf)
     local ngx_ctx = ngx.ctx
+    local end_time_ns = ngx_ctx.KONG_LOG_START * NS_PER_MS
 
     local ctx = kong.ctx.plugin
     if ctx.request_span == nil then
@@ -324,20 +339,7 @@ local function log(conf)
     local request_span = ctx.request_span
 
     if header_tags then
-        for header_name, tag_info in pairs(header_tags) do
-            local req_value = kong.request.get_header(header_name)
-            local res_value = kong.response.get_header(header_name)
-
-            if req_value then
-                local tag = (tag_info.normalized and "http.request.headers." .. tag_info.value) or tag_info.value
-                request_span:set_tag(tag, utils.concat(req_value, ","))
-            end
-
-            if res_value then
-                local tag = (tag_info.normalized and "http.response.headers." .. tag_info.value) or tag_info.value
-                request_span:set_tag(tag, utils.concat(res_value, ","))
-            end
-        end
+        utils.set_http_header_tags(request_span, header_tags, kong.request.get_header, kong.response.get_header)
     end
 
     if ngx_ctx.authenticated_consumer then
@@ -347,7 +349,8 @@ local function log(conf)
         request_span:set_tag("kong.credential", ngx_ctx.authenticated_credential.id)
     end
 
-    request_span:finish()
+    request_span:finish(end_time_ns)
+    request_span:free()
 
     ctx.proxy_span = nil
     ctx.request_span = nil

@@ -64,11 +64,25 @@ for _, strategy in helpers.all_strategies() do
 
         describe("receive traces", function()
             it("gets the expected header and payload", function()
-                -- dd-trace-cpp submits traces asynchronously and sends telemetry
-                -- before trace data, which is incompatible with helpers.http_mock
-                -- (single-connection mock). Trace submission is validated by
-                -- system-tests instead.
-                pending("dd-trace-cpp async submission incompatible with helpers.http_mock")
+                local headers, body
+                helpers.wait_until(function()
+                    local r = client:get("/mock", {})
+                    assert.res_status(200, r)
+
+                    local lines
+                    lines, body, headers = mock_agent()
+                    return lines and headers and headers["X-Datadog-Trace-Count"] ~= nil
+                end, 30)
+
+                assert.is_string(body)
+
+                assert.is_not_nil(headers["Datadog-Meta-Lang-Version"])
+
+                local len_body = #body
+                assert.equals(len_body, tonumber(headers["Content-Length"]))
+                assert.equals("cpp", headers["Datadog-Meta-Lang"])
+                assert.equals("2", headers["X-Datadog-Trace-Count"])
+                assert.equals("application/msgpack", headers["Content-Type"])
             end)
         end)
     end)
