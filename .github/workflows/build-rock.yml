@@ -75,9 +75,14 @@ jobs:
       - name: Update plugin handler version
         run: sed -i "s|VERSION = \".*\"|VERSION = \"${{ inputs.version }}\"|" kong/plugins/ddtrace/handler.lua
       - name: Package
+        # `luarocks make` installs the plugin locally (including both .so files
+        # via install.lib), then `luarocks pack` packs that installation into
+        # an arch-tagged binary .rock. Packing the rockspec directly would
+        # only produce a .src.rock without the native libraries.
         run: |
-          ROCKSPEC="$(python scripts/gen-rockspec.py --version ${{ inputs.version }} --tag ${{ inputs.tag }})"
-          luarocks pack ${ROCKSPEC}
+          ROCKSPEC="$(python3 scripts/gen-rockspec.py --version ${{ inputs.version }} --tag ${{ inputs.tag }})"
+          luarocks make "${ROCKSPEC}"
+          luarocks pack kong-plugin-ddtrace
       - name: Export package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
         with:
