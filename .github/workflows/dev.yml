@@ -2,11 +2,8 @@ name: Pull Request
 on:
   workflow_dispatch:
   pull_request:
-    branches:
-      - '!main'
-    tags:
-      - '!tips'
-      - '!v*.*.*'
+    branches-ignore:
+      - main
 
 jobs:
   format:
