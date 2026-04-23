@@ -25,4 +25,10 @@ build = {
         ["kong.plugins.ddtrace.schema"] = "kong/plugins/ddtrace/schema.lua",
         ["kong.plugins.ddtrace.utils"] = "kong/plugins/ddtrace/utils.lua",
     },
+    install = {
+        lib = {
+            ["libdd_trace_c-x86_64"] = "lib/libdd_trace_c-x86_64.so",
+            ["libdd_trace_c-aarch64"] = "lib/libdd_trace_c-aarch64.so",
+        },
+    },
 }

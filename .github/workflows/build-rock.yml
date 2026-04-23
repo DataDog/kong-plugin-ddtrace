@@ -1,0 +1,195 @@
+name: Build rock
+on:
+  workflow_call:
+    inputs:
+      publish-mode:
+        description: "none | tip | release"
+        required: true
+        type: string
+      version:
+        description: "Plugin version (e.g. 0.3.0 or 0.3.0.rc.abc1234)"
+        required: true
+        type: string
+      tag:
+        description: "Rockspec tag (e.g. tip or v0.3.0)"
+        required: true
+        type: string
+    secrets:
+      LUAROCKS_KEY:
+        description: "LuaRocks signing key, required when publish-mode=release"
+        required: false
+
+jobs:
+  build-lib:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+      - name: Read dd-trace-cpp ref
+        id: ref
+        run: echo "ref=$(cat .dd-trace-cpp-version)" >> "$GITHUB_OUTPUT"
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 #v3.7.1
+      - name: Build libdd_trace_c.so
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 #v6.9.0
+        with:
+          context: build
+          file: build/Dockerfile
+          target: export
+          build-args: |
+            DD_TRACE_CPP_REF=${{ steps.ref.outputs.ref }}
+          outputs: type=local,dest=${{ github.workspace }}/lib-out
+          cache-from: type=gha,scope=ddtrace-cpp-${{ matrix.arch }}-${{ steps.ref.outputs.ref }}
+          cache-to: type=gha,mode=max,scope=ddtrace-cpp-${{ matrix.arch }}-${{ steps.ref.outputs.ref }}
+      - name: Rename output to arch-suffixed filename
+        run: mv lib-out/libdd_trace_c.so lib-out/libdd_trace_c-${{ matrix.arch }}.so
+      - name: Upload native library
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
+        with:
+          name: libdd_trace_c-${{ matrix.arch }}
+          path: lib-out/libdd_trace_c-${{ matrix.arch }}.so
+          if-no-files-found: error
+
+  pack:
+    runs-on: ubuntu-22.04
+    needs: build-lib
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+      - name: Install Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 #v5.0.5
+      - uses: leafo/gh-actions-lua@8aace3457a2fcf3f3c4e9007ecc6b869ff6d74d6 #v11
+      - uses: leafo/gh-actions-luarocks@4c082a5fad45388feaeb0798dbd82dbd7dc65bca #v5
+      - name: Download native libraries
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e #v4.2.1
+        with:
+          pattern: libdd_trace_c-*
+          path: lib/
+          merge-multiple: true
+      - name: Update plugin handler version
+        run: sed -i "s|VERSION = \".*\"|VERSION = \"${{ inputs.version }}\"|" kong/plugins/ddtrace/handler.lua
+      - name: Package
+        # `luarocks make` installs the plugin locally (including both .so files
+        # via install.lib), then `luarocks pack` packs that installation into
+        # an arch-tagged binary .rock. Packing the rockspec directly would
+        # only produce a .src.rock without the native libraries.
+        #
+        # The rock is renamed to .all.rock after packing so LuaRocks accepts
+        # it on any Linux architecture. The rock contains both .so files, and
+        # tracer.lua's ffi.arch loader picks the correct one at runtime.
+        run: |
+          set -euo pipefail
+          ROCKSPEC="$(python3 scripts/gen-rockspec.py --version ${{ inputs.version }} --tag ${{ inputs.tag }})"
+          echo "Generated rockspec: ${ROCKSPEC}"
+          [ -f "${ROCKSPEC}" ] || { echo "gen-rockspec.py did not produce a rockspec file: ${ROCKSPEC}" >&2; exit 1; }
+          luarocks make "${ROCKSPEC}"
+          luarocks pack kong-plugin-ddtrace
+          PACKED="$(ls kong-plugin-ddtrace-*.rock)"
+          RENAMED="$(echo "${PACKED}" | sed 's|\.linux-[^.]*\.rock$|.all.rock|')"
+          mv "${PACKED}" "${RENAMED}"
+          ls -lh kong-plugin-ddtrace-*.rock
+      - name: Export package
+        # The `-*` glob excludes the unversioned template rockspec in the repo.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
+        with:
+          name: kong-ddtrace-artifact
+          path: |
+            kong-plugin-ddtrace-*.rock
+            kong-plugin-ddtrace-*.rockspec
+          if-no-files-found: error
+
+  test-package:
+    runs-on: ubuntu-22.04
+    needs: pack
+    container:
+      image: "kong/kong-gateway:3.5.0.0-ubuntu"
+      options: --user root
+    steps:
+      - name: Install dependencies
+        # libcurl4 is a runtime dependency of libdd_trace_c.so.
+        # zip/unzip are needed for luarocks to unpack the .rock.
+        run: apt update -y && apt install -y zip unzip libcurl4
+      - name: Download artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e #v4.2.1
+        with:
+          name: kong-ddtrace-artifact
+      - name: Install plugin
+        run: luarocks install kong-plugin-ddtrace*.rock
+      - name: Start Kong
+        env:
+          KONG_DATABASE: off
+          KONG_PLUGINS: bundled,ddtrace
+        run: kong start
+
+  publish-tip:
+    if: inputs.publish-mode == 'tip'
+    runs-on: ubuntu-22.04
+    needs: test-package
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+      - name: Download artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e #v4.2.1
+        with:
+          name: kong-ddtrace-artifact
+      - name: Generate pre-release metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LATEST_RELEASE="$(gh release view | head -n 1 | cut -d'v' -f2)"
+          {
+            echo "\`Commit SHA: ${GITHUB_SHA}\`"
+            echo ""
+            echo "> [!WARNING]"
+            echo "> **This is a pre-release build** based on the latest development."
+            echo "> It may introduce breaking changes, unexpected behavior, and other issues. We recommend using it only in non-critical environments."
+            echo ""
+            echo "## Install"
+            echo "1. Download the rock."
+            echo "2. Install it using luarocks: \`luarocks install <ROCK>.all.rock\`"
+            echo ""
+            echo "**Full Changelog**: https://github.com/DataDog/kong-plugin-ddtrace/compare/v${LATEST_RELEASE}...${GITHUB_SHA}"
+          } >> "$RUNNER_TEMP/notes.md"
+      - name: Update tip tag
+        run: git push origin :tip || true
+      - name: Create or Update Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete tip --yes || true
+          gh release create tip --title "Development (pre-release) build" \
+            --prerelease \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --target "$GITHUB_SHA" \
+            kong-plugin-ddtrace*.rock
+
+  publish-release:
+    if: inputs.publish-mode == 'release'
+    runs-on: ubuntu-22.04
+    needs: test-package
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+      - name: Download artifact
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e #v4.2.1
+        with:
+          name: kong-ddtrace-artifact
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ inputs.tag }}" \
+            --generate-notes \
+            --verify-tag \
+            --target "$GITHUB_SHA" \
+            kong-plugin-ddtrace*.rock
+      - name: Publish to Luarocks
+        run: |
+          luarocks upload kong-plugin-ddtrace*.rockspec kong-plugin-ddtrace*.rock \
+            --temp-key "${{ secrets.LUAROCKS_KEY }}" \
+            --sign \
+            --skip-pack

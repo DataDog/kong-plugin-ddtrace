@@ -11,7 +11,7 @@ local subsystem = ngx.config.subsystem
 local NS_PER_MS = 1000000LL
 
 local DatadogTraceHandler = {
-    VERSION = "0.2.4",
+    VERSION = "0.3.0",
     -- We want to run first so that timestamps taken are at start of the phase.
     -- However, it might be useful to finish spans after other plugins have completed
     -- to more accurately represent the request completion time.
