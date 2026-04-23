@@ -114,8 +114,6 @@ jobs:
     if: inputs.publish-mode == 'tip'
     runs-on: ubuntu-22.04
     needs: test-package
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
       - name: Download artifact
@@ -157,8 +155,6 @@ jobs:
     if: inputs.publish-mode == 'release'
     runs-on: ubuntu-22.04
     needs: test-package
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
       - name: Download artifact
