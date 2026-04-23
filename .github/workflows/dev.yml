@@ -38,11 +38,24 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: DataDog/kong-plugin-ddtrace
 
+  prep:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+      - name: Generate PR version
+        id: version
+        # gen-rockspec.py validates {version}-1 against [\w.]+-[\d]+, so the
+        # version segment must use dots/underscores only (no hyphens).
+        run: |
+          HANDLER_VERSION="$(grep 'VERSION' kong/plugins/ddtrace/handler.lua | awk -F '"' '{print $2;exit}')"
+          echo "version=${HANDLER_VERSION}.pr.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
   build-rock:
+    needs: prep
     uses: ./.github/workflows/build-rock.yml
     with:
       publish-mode: none
-      # gen-rockspec.py validates {version}-1 against [\w.]+-[\d]+, so the
-      # version segment must use dots/underscores only (no hyphens).
-      version: 0.0.0.pr
+      version: ${{ needs.prep.outputs.version }}
       tag: pr

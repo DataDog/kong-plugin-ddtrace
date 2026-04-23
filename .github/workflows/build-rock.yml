@@ -95,12 +95,13 @@ jobs:
           mv "${PACKED}" "${RENAMED}"
           ls -lh kong-plugin-ddtrace-*.rock
       - name: Export package
+        # The `-*` glob excludes the unversioned template rockspec in the repo.
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
         with:
           name: kong-ddtrace-artifact
           path: |
-            kong-plugin-ddtrace*.rock
-            kong-plugin-ddtrace*.rockspec
+            kong-plugin-ddtrace-*.rock
+            kong-plugin-ddtrace-*.rockspec
           if-no-files-found: error
 
   test-package:
