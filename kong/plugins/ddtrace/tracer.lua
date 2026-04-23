@@ -73,8 +73,13 @@ ffi.cdef([[
 
 -- Load the architecture-specific native library installed by LuaRocks, or fall
 -- back to a generically-named one on the system library path.
-local lib_name = (ffi.arch == "x64") and "libdd_trace_c-x86_64" or "libdd_trace_c-aarch64"
-local lib_path = package.searchpath(lib_name, package.cpath)
+local lib_name
+if ffi.arch == "x64" then
+    lib_name = "libdd_trace_c-x86_64"
+elseif ffi.arch == "arm64" then
+    lib_name = "libdd_trace_c-aarch64"
+end
+local lib_path = lib_name and package.searchpath(lib_name, package.cpath)
 local ok, lib = pcall(ffi.load, lib_path or "dd_trace_c")
 if not ok and lib_path then
     ok, lib = pcall(ffi.load, "dd_trace_c")
