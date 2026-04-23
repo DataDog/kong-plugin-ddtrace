@@ -37,3 +37,10 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: DataDog/kong-plugin-ddtrace
+
+  build-rock:
+    uses: ./.github/workflows/build-rock.yml
+    with:
+      publish-mode: none
+      version: 0.0.0-pr
+      tag: pr

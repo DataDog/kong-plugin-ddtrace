@@ -71,8 +71,10 @@ ffi.cdef([[
     int dd_span_get_span_id(dd_span_t* span_handle, char* buffer, size_t buffer_size);
 ]])
 
--- Load the native library. Try LuaRocks install path first, then system path.
-local lib_path = package.searchpath("libdd_trace_c", package.cpath)
+-- Load the architecture-specific native library installed by LuaRocks, or fall
+-- back to a generically-named one on the system library path.
+local lib_name = (ffi.arch == "x64") and "libdd_trace_c-x86_64" or "libdd_trace_c-aarch64"
+local lib_path = package.searchpath(lib_name, package.cpath)
 local ok, lib = pcall(ffi.load, lib_path or "dd_trace_c")
 if not ok and lib_path then
     ok, lib = pcall(ffi.load, "dd_trace_c")
