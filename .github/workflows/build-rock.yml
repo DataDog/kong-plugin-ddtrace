@@ -80,9 +80,13 @@ jobs:
         # an arch-tagged binary .rock. Packing the rockspec directly would
         # only produce a .src.rock without the native libraries.
         run: |
+          set -euo pipefail
           ROCKSPEC="$(python3 scripts/gen-rockspec.py --version ${{ inputs.version }} --tag ${{ inputs.tag }})"
+          echo "Generated rockspec: ${ROCKSPEC}"
+          [ -f "${ROCKSPEC}" ] || { echo "gen-rockspec.py did not produce a rockspec file: ${ROCKSPEC}" >&2; exit 1; }
           luarocks make "${ROCKSPEC}"
           luarocks pack kong-plugin-ddtrace
+          ls -lh kong-plugin-ddtrace-*.rock
       - name: Export package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
         with:

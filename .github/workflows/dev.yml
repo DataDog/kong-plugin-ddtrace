@@ -42,5 +42,7 @@ jobs:
     uses: ./.github/workflows/build-rock.yml
     with:
       publish-mode: none
-      version: 0.0.0-pr
+      # gen-rockspec.py validates {version}-1 against [\w.]+-[\d]+, so the
+      # version segment must use dots/underscores only (no hyphens).
+      version: 0.0.0.pr
       tag: pr
