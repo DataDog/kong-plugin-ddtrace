@@ -56,6 +56,45 @@ describe("utils.concat", function()
     end)
 end)
 
+describe("utils.set_http_header_tags", function()
+    local function run(header_tags, req, res)
+        local recorded = {}
+        local span = {
+            set_tag = function(_, k, v)
+                table.insert(recorded, { k, v })
+            end,
+        }
+        utils.set_http_header_tags(span, header_tags, function(n)
+            return req[n]
+        end, function(n)
+            return res[n]
+        end)
+        return recorded
+    end
+
+    it("prefixes normalized keys with http.request/response.headers.<name>", function()
+        local tags = { host = { normalized = true, value = "host" } }
+        assert.same({
+            { "http.request.headers.host", "req" },
+            { "http.response.headers.host", "res" },
+        }, run(tags, { host = "req" }, { host = "res" }))
+    end)
+
+    it("uses tag_info.value as-is and lets response win when not normalized", function()
+        local tags = { ["x-dd"] = { normalized = false, value = "custom.tag" } }
+        assert.same({ { "custom.tag", "res" } }, run(tags, { ["x-dd"] = "req" }, { ["x-dd"] = "res" }))
+        assert.same({ { "custom.tag", "req" } }, run(tags, { ["x-dd"] = "req" }, {}))
+    end)
+
+    it("joins multi-value headers with a comma", function()
+        local tags = { accept = { normalized = true, value = "accept" } }
+        assert.same(
+            { { "http.request.headers.accept", "text/html,application/json" } },
+            run(tags, { accept = { "text/html", "application/json" } }, {})
+        )
+    end)
+end)
+
 describe("utils.is_truthy", function()
     it("cases", function()
         local test_cases = {

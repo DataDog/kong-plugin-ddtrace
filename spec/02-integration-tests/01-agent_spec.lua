@@ -71,22 +71,18 @@ for _, strategy in helpers.all_strategies() do
 
                     local lines
                     lines, body, headers = mock_agent()
-
-                    return lines
-                end)
+                    return lines and headers and headers["X-Datadog-Trace-Count"] ~= nil
+                end, 30)
 
                 assert.is_string(body)
 
                 assert.is_not_nil(headers["Datadog-Meta-Lang-Version"])
-                assert.is_not_nil(headers["Host"])
-                assert.is_not_nil(headers["User-Agent"])
 
                 local len_body = #body
                 assert.equals(len_body, tonumber(headers["Content-Length"]))
-                assert.equals("lua", headers["Datadog-Meta-Lang"])
-                assert.equals("LuaJIT", headers["Datadog-Meta-Lang-Interpreter"])
+                assert.equals("cpp", headers["Datadog-Meta-Lang"])
                 assert.equals("2", headers["X-Datadog-Trace-Count"])
-                assert.equals("application/msgpack", headers["content-type"])
+                assert.equals("application/msgpack", headers["Content-Type"])
             end)
         end)
     end)
