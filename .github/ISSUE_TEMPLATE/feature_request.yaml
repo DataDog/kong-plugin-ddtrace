@@ -1,0 +1,32 @@
+name: Feature Request (Low Priority)
+description: Create a public feature request. Note that these may not be addressed as quickly as helpdesk requests.
+title: "[FEATURE]: "
+labels: feature-request
+body:
+  - type: textarea
+    attributes:
+      label: Feature Goal
+      description: A clear and concise goal of what you want to achieve.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Related Problem
+      description: If applicable, a clear and concise description of the problem.
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Considered Alternatives
+      description: A clear and concise description of any alternative solutions or features you considered.
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Additional Context
+      description: Any other relevant context or screenshots.
+    validations:
+      required: false
