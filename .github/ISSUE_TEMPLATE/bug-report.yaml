@@ -1,52 +1,49 @@
-name: Bug Report
-description: File a bug report
-title: "[Bug]: "
-labels: ["bug", "triage"]
+name: Bug Report (Low Priority)
+description: Create a public bug report. Note that these may not be addressed as quickly as helpdesk requests.
+title: "[BUG]: "
+labels: community, bug
 body:
-  - type: markdown
-    attributes:
-      value: |
-        Thank you for investing the time to complete this bug report.
-        To ensure prompt attention and receive additional assistance, we suggest initiating a [Datadog support ticket](https://help.datadoghq.com/hc/en-us/requests/new) (no login required).
   - type: input
-    id: kong-version
     attributes:
-      label: Kong Version
-      description: What version of Kong are you running?
-      placeholder: Output of `kong version`
+      label: Kong Version(s)
+      description: Version(s) of the Kong Gateway affected by this bug.
+      placeholder: 1.2.0
     validations:
       required: true
+
   - type: input
-    id: ddtrace-version
     attributes:
-      label: Plugin Version
-      description: What version of `kong-plugin-ddtrace` are you running?
-      placeholder: Output of `luarocks list kong-plugin-ddtrace`
+      label: Dadadog Kong Plugin Version(s)
+      description: Version(s) of the Datadog Kong Plugin affected by this bug.
+      placeholder: 1.2.0
     validations:
       required: true
-  - type: dropdown
-    id: runtime
-    attributes:
-      label: On which environment your Kong instance is running?
-      options:
-        - Kubernetes
-        - Docker
-        - Other
-    validations:
-      required: true
+
   - type: textarea
-    id: ddtrace-config
     attributes:
-      label: Plugin Configuration
-      description: Please copy and paste the plugin configuration.
-      render: yaml
+      label: Bug Report
+      description: A clear and concise description of the bug.
     validations:
       required: true
+
   - type: textarea
-    id: what-happened
     attributes:
-      label: What happened?
-      description: Detailed description of the problem, and if known, the expected behavior.
-      value: "A bug happened!"
+      label: Reproduction Code
+      description: Code that helps us reproduce the problem.
     validations:
-      required: true
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Error Logs
+      description: Any error logs from the Plugin.
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: Operating System
+      description: Your operating system and version (e.g. `uname -a`).
+      placeholder: Darwin Kernel Version 23.6.0
+    validations:
+      required: false
