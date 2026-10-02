@@ -1,14 +1,19 @@
 # Kong Plugin for Datadog APM
+
 [![codecov](https://codecov.io/github/DataDog/kong-plugin-ddtrace/graph/badge.svg?token=htSU1hFalA)](https://codecov.io/github/DataDog/kong-plugin-ddtrace)
 
-The `kong-plugin-ddtrace` is a Datadog APM plugin designed to integrate seamlessly with the Kong Gateway.
-This plugin enables detailed tracing of requests passing through Kong, providing insights into the performance and behavior of your APIs.
+The `kong-plugin-ddtrace` is a Datadog APM plugin designed to integrate seamlessly with the Kong
+Gateway. This plugin enables detailed tracing of requests passing through Kong, providing insights
+into the performance and behavior of your APIs.
 
 ## Features
 
-- **Detailed Tracing**: Capture and report trace data to the Datadog Agent, allowing you to monitor and diagnose performance issues in real-time.
-- **Real-Time Monitoring**: Integrate with Datadog to monitor API performance and diagnose issues in real-time.
-- **Configurable**: Supports a wide range of configuration options to tailor tracing to your specific needs.
+- **Detailed Tracing**: Capture and report trace data to the Datadog Agent, allowing you to monitor
+  and diagnose performance issues in real-time.
+- **Real-Time Monitoring**: Integrate with Datadog to monitor API performance and diagnose issues in
+  real-time.
+- **Configurable**: Supports a wide range of configuration options to tailor tracing to your
+  specific needs.
 - **Compatibility**: Works with various Kong deployment environments, including Kubernetes.
 
 ## Getting Started
@@ -42,6 +47,7 @@ curl -i -X POST --url http://${KONG_ADMIN_HOST}:${KONG_ADMIN_PORT}/services/exam
 ```
 
 Kong DB-less:
+
 ````yaml
 # Enable for a specific service
 _format_version: "3.0"
@@ -63,19 +69,21 @@ services:
 
 ### Configuration
 
-This plugin supports a number of configuration options. These can be supplied when registering the plugin or by setting environment variables.
+This plugin supports a number of configuration options. These can be supplied when registering the
+plugin or by setting environment variables.
 
 More details on the [Configuration page](doc/configuration.md).
 
-## Support
-
-For support, please [open an issue on the GitHub repository](/issues) or [contact Datadog support](https://help.datadoghq.com/hc/en-us/requests/new).
-
 ## Contributing
 
-Contributions are welcome! Please read [the contributing guidelines](./CONTRIBUTING.md) and follow the best practices outlined in the project documentation.
+Contributions are welcome! Please read the [contributing guidelines](CONTRIBUTING.md) and follow the
+best practices outlined in the project documentation.
+
+## Security
+
+If you discover a security vulnerablity in the Kong Plugin for Datadog APM, please refer to the
+[Security Policy](SECURITY.md).
 
 ## License
 
-This project is licensed under the Apache License 2.0. See the LICENSE file for details.
-
+This project is licensed under the Apache License 2.0. See the [license file](LICENSE) for details.
