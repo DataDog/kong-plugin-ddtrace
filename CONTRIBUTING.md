@@ -1,17 +1,17 @@
-Contributing to kong-plugin-ddtrace
-===================================
+# Contributing to the Kong Plugin for Datadog APM
+
 Pull requests for bug fixes are welcome.
 
 Before submitting new features or changes to current functionality, [open an
-issue](https://github.com/DataDog/kong-plugin-ddtrace/issues/new) and discuss your
-ideas or propose the changes you wish to make. After a resolution is reached, a
-PR can be submitted for review.
+issue](https://github.com/DataDog/kong-plugin-ddtrace/issues/new) and discuss your ideas or propose
+the changes you wish to make. After a resolution is reached, a PR can be submitted for review.
 
 ## Testing
 
 ### Test Environment
 
-Testing can be performed using `pongo`. Installation instructions are [here](https://github.com/Kong/kong-pongo#installation).
+Testing can be performed using `pongo`. See [kong-pongo Installation
+Instructions](https://github.com/Kong/kong-pongo#installation).
 
 Prepare the environment:
 
@@ -24,6 +24,7 @@ pongo shell
 ```
 
 Inside the shell:
+
 ```bash
 # This migration step is only required the first time after running `pongo up`
 kong migrations bootstrap
@@ -39,8 +40,9 @@ curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --
 curl --header 'Host: example.com' http://localhost:8000/headers
 ```
 
-This should result in a JSON response from the final `curl` request, with headers containing `x-datadog-trace-id`, `x-datadog-parent-id` and `x-datadog-sampling-priority`.
-If the `DD_API_KEY` was correctly set, then the trace should appear at https://app.datadoghq.com/apm/traces
+This should result in a JSON response from the final `curl` request, with headers containing
+`x-datadog-trace-id`, `x-datadog-parent-id` and `x-datadog-sampling-priority`. If the `DD_API_KEY`
+was correctly set, then the trace should appear at https://app.datadoghq.com/apm/traces.
 
 ### Built-in Tests
 
