@@ -1,51 +1,46 @@
 # Contributing to the Kong Plugin for Datadog APM
 
-Pull requests for bug fixes are welcome.
+## Documentation
 
-Before submitting new features or changes to current functionality, [open an
-issue](https://github.com/DataDog/kong-plugin-ddtrace/issues/new) and discuss your ideas or propose
-the changes you wish to make. After a resolution is reached, a PR can be submitted for review.
+Refer to the [documentation](doc) to learn about the development processes for the Kong Plugin for
+Datadog APM. In particular, review:
 
-## Testing
+- [Development Processes](doc/development.md)
 
-### Test Environment
+## Contribution Guidelines
 
-Testing can be performed using `pongo`. See [kong-pongo Installation
-Instructions](https://github.com/Kong/kong-pongo#installation).
+When authoring a Pull Request (PR), you must follow these rules:
 
-Prepare the environment:
+- You are the author, regardless of the tools you use.
+  - Labels and signatures that mention tools are forbidden. Do not shift responsibility. Take
+    ownership.
+- Before submitting a PR, you must review every line in detail.
+- A PR that is not humanly reviewable will be rejected. The criteria are:
+  - The diff must be of reasonable size (usually less than 300 lines).
+  - The PR description:
+    - Must be written manually. Slightly imperfect wording is better than a long, unclear or
+      cluttered description.
+    - Must state the objective, and, unless obvious, the context and a high-level explanation.
+    - Must explain what changed and why, but without restating implementation details.
+    - Must not contain irrelevant details.
+  - No long comments (unless truly needed).
+  - No useless comments.
+- The code must be clean. Notably (in addition to the above):
+  - Short and focused functions (usually less than 20 lines, and less if possible).
+  - Meaningful and understandable names. Avoid abbreviations; favor explicit names, even if long.
+  - No code duplication.
+- The PR must address only one concern.
+- The PR must not include unrelated changes, unless truly tiny. Major cleanup, reformatting or
+  reorganization must go in dedicated PRs.
+- The PR must include tests that are easy to relate to the behavior they verify.
+- The tests must focus on important behavior, not exhaustively cover minor details unlikely to
+  break.
+- The PR must have verifiable claims (such as test results).
+- Commits must be in a logical and reviewable order.
+- Commits message must be short and straight to the point (usually less than 3 lines).
 
-```bash
-export DD_API_KEY=... # your API key is required for this test to successfully submit traces from the agent to Datadog.
-git clone https://github.com/Datadog/kong-plugin-ddtrace
-cd kong-plugin-ddtrace
-pongo up
-pongo shell
-```
+## Pull Request Hygiene
 
-Inside the shell:
-
-```bash
-# This migration step is only required the first time after running `pongo up`
-kong migrations bootstrap
-
-export KONG_PLUGINS=bundled,ddtrace
-kong start
-
-# Create a service named example service that handles requests for httpbin.org and routes requests for example.com to that endpoint.
-curl -i -X POST --url http://localhost:8001/services/ --data 'name=example-service' --data 'url=http://httpbin.org'
-curl -i -X POST --url http://localhost:8001/services/example-service/routes --data 'hosts[]=example.com'
-curl -i -X POST --url http://localhost:8001/services/example-service/plugins/ --data 'name=ddtrace' --data 'config.agent_host=datadog-agent'
-
-curl --header 'Host: example.com' http://localhost:8000/headers
-```
-
-This should result in a JSON response from the final `curl` request, with headers containing
-`x-datadog-trace-id`, `x-datadog-parent-id` and `x-datadog-sampling-priority`. If the `DD_API_KEY`
-was correctly set, then the trace should appear at https://app.datadoghq.com/apm/traces.
-
-### Built-in Tests
-
-The built-in tests can be executed by running `pongo run --no-datadog-agent`.
-
-A report for test coverage is produced when run with additional options: `pongo run --no-datadog-agent -- --coverage`.
+- Draft PRs are not reviewed (unless explicitly requested).
+- PRs not updated within one month of the latest review will be converted to drafts.
+- Draft PRs not updated within three months will be closed.
