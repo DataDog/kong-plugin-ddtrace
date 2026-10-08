@@ -358,6 +358,17 @@ local function log(conf)
     local request_span = ctx.request_span
     local agent_writer = get_agent_writer(conf, ddtrace_conf.agent_url)
 
+    -- Tag the root span with the response status. The proxy span reports the
+    -- upstream status, but requests short-circuited before the proxy phase
+    -- (e.g. kong.response.exit from an access-phase plugin) have no proxy
+    -- span, and consumers commonly filter service entry spans by status.
+    local status_code = kong.response.get_status()
+    request_span:set_tag("http.status_code", status_code)
+    if status_code >= 500 then
+        request_span:set_tag("error", true)
+        request_span.error = status_code
+    end
+
     if header_tags then
         request_span:set_http_header_tags(header_tags, kong.request.get_header, kong.response.get_header)
     end
