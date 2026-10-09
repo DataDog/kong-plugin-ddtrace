@@ -285,6 +285,13 @@ local function header_filter(_)
 
     local ctx = kong.ctx.plugin
     if ctx.proxy_span == nil then
+        if not kong.router.get_route() then
+            -- No route matched, so the access phase never ran and no spans were
+            -- created. This is normal for globally-enabled plugins receiving
+            -- unrouted requests (e.g. scanners, direct IP hits).
+            kong.log.debug("no proxy span and no matched route, skipping header_filter phase")
+            return
+        end
         error('proxy span missing during the "header_filter" phase')
     end
 
@@ -352,6 +359,10 @@ local function log(conf)
 
     local ctx = kong.ctx.plugin
     if ctx.request_span == nil then
+        if not kong.router.get_route() then
+            kong.log.debug("no request span and no matched route, skipping log phase")
+            return
+        end
         error("request span is missing during the log phase")
     end
 
