@@ -96,6 +96,23 @@ function _M.concat(input, separator)
     return table.concat(input, separator)
 end
 
+function _M.set_http_header_tags(span, header_tags, get_request_header, get_response_header)
+    local function emit(prefix, header_value, tag_info)
+        if header_value then
+            local key = (tag_info.normalized and prefix .. tag_info.value) or tag_info.value
+            span:set_tag(key, _M.concat(header_value, ","))
+        end
+    end
+    for header_name, tag_info in pairs(header_tags) do
+        local response_header_value = get_response_header(header_name)
+        -- Non-normalized keys collide; response wins, so skip the request side.
+        if tag_info.normalized or not response_header_value then
+            emit("http.request.headers.", get_request_header(header_name), tag_info)
+        end
+        emit("http.response.headers.", response_header_value, tag_info)
+    end
+end
+
 function _M.dump(o)
     if type(o) == "table" then
         local s = "{ "
