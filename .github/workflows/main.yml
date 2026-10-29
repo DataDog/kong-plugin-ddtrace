@@ -18,6 +18,9 @@ jobs:
 
   run-test:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write # needed for dd-sts OIDC token exchange
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
       - uses: Kong/kong-pongo-action@5972effad7a566aed12b879b559bbff07d258d51 #v1.0.3
@@ -34,6 +37,24 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: DataDog/kong-plugin-ddtrace
+      - name: Convert luacov to LCOV
+        if: always()
+        run: python3 .github/scripts/luacov_to_lcov.py
+      - name: Get Datadog credentials
+        id: dd-sts
+        continue-on-error: true
+        uses: DataDog/dd-sts-action@2e8187910199bd93129520183c093e19aa585c75 # v1.0.0
+        with:
+          policy: kong-plugin-ddtrace
+      - name: Upload coverage to Datadog
+        if: steps.dd-sts.outputs.api_key != ''
+        continue-on-error: true
+        uses: DataDog/coverage-upload-github-action@d2cf302a39c05e0ad22063360a2bf6ce0cc4906c # v1
+        with:
+          api_key: ${{ steps.dd-sts.outputs.api_key }}
+          files: ${{ github.workspace }}/coverage.lcov
+          format: lcov
+          base-path: /kong-plugin
 
   package:
     runs-on: ubuntu-22.04
