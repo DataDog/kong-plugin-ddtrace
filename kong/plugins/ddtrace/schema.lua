@@ -142,7 +142,7 @@ return {
                             default = {},
                             elements = {
                                 type = "string",
-                                one_of = { "provider_account", "project", "route", "destination", "user", "service" },
+                                one_of = { "provider_account", "project", "route", "destination", "key_alias", "user", "service" },
                             },
                         },
                     },

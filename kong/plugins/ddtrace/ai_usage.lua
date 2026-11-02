@@ -419,6 +419,16 @@ end
 local batch = dogstatsd.new_batch()
 local writer = { started = false }
 
+-- An email address, the one form of consumer name that is known to be a
+-- person rather than a service.
+local function person(value)
+    value = string_value(value)
+    if value and value:match("^[^@%s]+@[^@%s]+%.[^@%s]+$") then
+        return value
+    end
+    return nil
+end
+
 -- The largest DogStatsD datagram: the usual Ethernet MTU less IP and UDP
 -- headers, as Datadog's DogStatsD clients use for UDP.
 local MAX_DATAGRAM_BYTES = 1432
@@ -618,10 +628,20 @@ local function deployment_attributes(conf, target, tags, model_provider, state)
         local service = kong.router.get_service()
         attributes["trajectory.gateway.destination.id"] = service and string_value(service.name)
     end
-    if tags.user then
+    if tags.key_alias or tags.user then
         local consumer = kong.client.get_consumer()
         if consumer then
-            attributes["user.id"] = string_value(consumer.custom_id) or string_value(consumer.username)
+            -- The consumer's name labels the credential the caller presented,
+            -- person or service. The credential itself is never read.
+            if tags.key_alias then
+                attributes["trajectory.gateway.key.alias"] = string_value(consumer.username)
+                    or string_value(consumer.custom_id)
+            end
+            -- user.id is only ever a person: a consumer whose custom_id or
+            -- username is an email address. A service consumer has none.
+            if tags.user then
+                attributes["user.id"] = person(consumer.custom_id) or person(consumer.username)
+            end
         end
     end
     if tags.service and target then

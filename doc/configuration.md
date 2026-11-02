@@ -32,7 +32,7 @@ Configuration can be set either through the plugin configuration field or enviro
 | `ai_usage_metrics_enabled` | | Send LLM usage and cost metrics for requests handled by Kong's AI Proxy plugin. See [LLM Usage and Cost Metrics](#llm-usage-and-cost-metrics) | unreleased | `boolean` | `false` |
 | `dogstatsd_port` | `DD_DOGSTATSD_PORT` | DogStatsD port of the Datadog Agent, on `agent_host`, that LLM usage metrics are sent to | unreleased | `number` | `8125` |
 | `ai_usage_metrics_flush_interval` | | Seconds between two sends of LLM usage metrics | unreleased | `number` | `10` |
-| `ai_usage_metrics_tags` | | Optional tags to add to LLM usage metrics: `provider_account`, `project`, `route`, `destination`, `user`, `service` | unreleased | `array[str]` | `{}` |
+| `ai_usage_metrics_tags` | | Optional tags to add to LLM usage metrics: `provider_account`, `project`, `route`, `destination`, `key_alias`, `user`, `service` | unreleased | `array[str]` | `{}` |
 | `ai_usage_metrics_api_key_id` | | Id of the provider API key the route uses, as shown in the provider's console, sent as `trajectory.request.api_key_id` | unreleased | `string` | `nil` |
 | `ai_usage_metrics_provider_account_id` | | Provider account (organization) the route is billed to, sent as `trajectory.request.provider_account_id` | unreleased | `string` | `nil` |
 | `ai_usage_metrics_project_id` | | Provider project the route is billed to, sent as `trajectory.request.project_id` | unreleased | `string` | `nil` |
@@ -145,7 +145,12 @@ Optional tags, with `ai_usage_metrics_tags`:
   whether or not these tags are enabled.
 - `route`: the Kong route name, as `trajectory.gateway.route`.
 - `destination`: the Kong service name, as `trajectory.gateway.destination.id`.
-- `user`: the authenticated Kong consumer's `custom_id`, or else its `username`, as `user.id`.
+- `key_alias`: the authenticated Kong consumer's `username`, or else its `custom_id`, as
+  `trajectory.gateway.key.alias`: the label of the caller, person or service. The credential itself is never
+  read.
+- `user`: the person the call was made for, as `user.id`: the authenticated consumer's `custom_id` or
+  `username` when it is an email address. A service consumer has no `user.id`; use `key_alias` to tell
+  services apart.
 - `service`: the service name of the plugin's traces (`DD_SERVICE`, `service_name`, or `kong`), as `service`.
 
 `trajectory.request.api_key_id` is only ever the value declared with `ai_usage_metrics_api_key_id`; it is
