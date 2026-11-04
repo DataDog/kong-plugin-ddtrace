@@ -66,23 +66,21 @@ local KONG_COUNTS_REPORTED = {
     bedrock = true,
 }
 
--- The response headers that can name the billed account and project; which
--- of them counts for which provider is the library's rule.
-local PROVIDER_ID_HEADERS = { "anthropic-organization-id", "openai-organization", "openai-project" }
-
 local OPT_IN_PROVIDER_IDS = {
     provider_account = "trajectory.request.provider_account_id",
     project = "trajectory.request.project_id",
 }
 
--- Request documents wait in a per-worker batch until the next send. The
--- timer sends every flush interval, and a batch that reaches the high-water
--- mark is sent at once by a zero-delay timer, so the rate a worker can carry
--- does not depend on the interval. The cap is a memory ceiling: the 20% above
--- the high-water mark only has to hold what arrives before that timer runs.
--- Documents over it are dropped, counted and warned about; that happens only
--- when sends cannot keep up (no timer can run, or the worker is starved).
-local MAX_BATCH_DOCUMENTS = 20000
+-- Request documents are projected into a per-worker batch of points (one per
+-- counter series, one per histogram sample) until the next send. The timer
+-- sends every flush interval, and a batch that reaches the high-water mark is
+-- sent at once by a zero-delay timer, so the rate a worker can carry does not
+-- depend on the interval. The library bounds the batch: a memory ceiling, of
+-- which the 20% above the high-water mark only has to hold what arrives
+-- before that timer runs. A document over it is dropped whole, counted and
+-- warned about; that happens only when sends cannot keep up (no timer can
+-- run, or the worker is starved).
+local MAX_BATCH_POINTS = 20000
 local HIGH_WATER_FRACTION = 0.8
 -- A warning about dropped documents is logged at most this often.
 local DROP_WARN_INTERVAL = 60
@@ -261,14 +259,24 @@ end
 -- The batch of this worker, sent by a timer.
 local batch = usage_ffi.available() and usage_ffi.new_batch() or nil
 local writer = { started = false, early_pending = false }
--- Limits of the batch; a table so tests can lower them.
-local limits = {
-    max_documents = MAX_BATCH_DOCUMENTS,
-    high_water = math.floor(MAX_BATCH_DOCUMENTS * HIGH_WATER_FRACTION),
-}
+-- Limits of the batch, in points.
+local limits = {}
 _M.limits = limits
--- Documents dropped since the last warning.
-local drops = { pending = 0, total = 0, warned_at = nil }
+
+-- Bound the batch to max_points, and send it early at high_water points (80%
+-- of the bound by default). Tests lower them.
+function _M.set_limits(max_points, high_water)
+    limits.max_points = max_points
+    limits.high_water = high_water or math.floor(max_points * HIGH_WATER_FRACTION)
+    if batch then
+        batch:set_max_len(max_points)
+    end
+end
+_M.set_limits(MAX_BATCH_POINTS)
+
+-- Documents dropped since the last warning; seen is the batch's own count
+-- when it was last read.
+local drops = { pending = 0, total = 0, warned_at = nil, seen = 0 }
 _M.drops = drops
 
 -- An email address, the one form of consumer name that is known to be a
@@ -319,13 +327,21 @@ end
 -- Warn about the documents dropped since the last warning, at most once per
 -- DROP_WARN_INTERVAL.
 local function warn_drops(now)
+    if batch then
+        local dropped = batch:dropped()
+        if dropped > drops.seen then
+            drops.pending = drops.pending + dropped - drops.seen
+            drops.total = drops.total + dropped - drops.seen
+            drops.seen = dropped
+        end
+    end
     if drops.pending == 0 or (drops.warned_at and now - drops.warned_at < DROP_WARN_INTERVAL) then
         return
     end
     kong.log.warn(
         "ddtrace: AI usage metrics buffer full (",
-        limits.max_documents,
-        " documents); ",
+        limits.max_points,
+        " points); ",
         drops.pending,
         " documents dropped since the last warning, ",
         drops.total,
@@ -344,6 +360,10 @@ local function flush()
     if not datagrams then
         kong.log.err("ddtrace: cannot encode AI usage metrics: ", err)
         return
+    end
+    if err and err > 0 then
+        -- Lines longer than a datagram, which the Agent would refuse.
+        kong.log.warn("ddtrace: ", err, " AI usage metric lines over ", usage_ffi.UDP_MAX_PAYLOAD, " bytes dropped")
     end
     send_datagrams(datagrams, writer.host, writer.port)
 end
@@ -367,7 +387,7 @@ end
 -- Send the batch now, off the request path, once it reaches the high-water
 -- mark. When no timer can be created, the next request tries again.
 local function flush_if_full()
-    if writer.early_pending or not writer.started or not batch or batch.documents < limits.high_water then
+    if writer.early_pending or not writer.started or not batch or batch:len() < limits.high_water then
         return
     end
     local ok, err = ngx.timer.at(0, on_early_timer)
@@ -392,9 +412,9 @@ local function ensure_writer(target)
     writer.started = true
 end
 
--- Test hook: the request documents waiting in the batch.
-function _M.buffered_documents()
-    return batch and batch.documents or 0
+-- Test hook: the points waiting in the batch.
+function _M.buffered_points()
+    return batch and batch:len() or 0
 end
 
 -- Test hook: the DogStatsD lines recorded so far, sorted; the batch is
@@ -424,23 +444,25 @@ for name in pairs(DEFAULT_METRICS) do
     METRIC_NAMES[#METRIC_NAMES + 1] = name
 end
 table.sort(METRIC_NAMES)
+-- Set once on the batch, so that documents leave the list out.
+if batch then
+    local ok, err = batch:set_metrics(METRIC_NAMES)
+    if not ok then
+        batch = nil
+        ngx.log(ngx.ERR, "ddtrace: AI usage metrics are off: the library refused the metric list: ", err)
+    end
+end
 
 local function project(profile, observation, attributes)
     if not batch then
         return
     end
-    -- The memory ceiling: reached only when sends cannot keep up.
-    if batch.documents >= limits.max_documents then
-        drops.pending = drops.pending + 1
-        drops.total = drops.total + 1
-        warn_drops(ngx.now())
-        return
-    end
+    -- A document the bounded batch has no room for is dropped and counted
+    -- by the library; log() reads the count once per request.
     local ok, err = batch:add({
         profile = profile,
         observation = observation,
         deployment_attributes = attributes,
-        metrics = METRIC_NAMES,
     })
     if not ok then
         kong.log.debug("ddtrace: AI usage observation rejected (", profile, "): ", err)
@@ -471,13 +493,14 @@ function _M.header_filter(conf)
     }
     local tags = enabled_tags(conf)
     if tags.provider_account or tags.project then
-        -- The library reads the account and project from these headers, and
-        -- the account a Bedrock model ARN names. A buffered response's
-        -- get_headers() cannot be iterated, so each header is fetched.
+        -- The library reads the account and project from the headers it
+        -- names for the provider, and the account a Bedrock model ARN names.
+        -- A buffered response's get_headers() cannot be iterated, so each
+        -- header is fetched.
         local provider = provider_name(request.model)
         if provider then
             local headers = {}
-            for _, name in ipairs(PROVIDER_ID_HEADERS) do
+            for _, name in ipairs(usage_ffi.provider_id_headers(provider)) do
                 headers[name] = response.get_header(name)
             end
             state.provider_ids = usage_ffi.provider_ids(provider, headers, { request.model.name })
@@ -687,6 +710,10 @@ function _M.log(conf, target)
         gateway.estimated_cost_usd = gateway_cost
     end
     project(PROFILES.gateway_request, gateway, attributes)
+    -- The memory ceiling: reached only when sends cannot keep up.
+    if batch and batch:dropped() > drops.seen then
+        warn_drops(now)
+    end
 
     if target then
         ensure_writer(target)

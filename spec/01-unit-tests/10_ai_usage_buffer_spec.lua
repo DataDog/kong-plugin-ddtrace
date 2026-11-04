@@ -1,6 +1,6 @@
--- The per-worker batch of AI usage request documents between two sends: it
--- is sent early at the high-water mark, and what goes over its cap is counted
--- and warned about.
+-- The per-worker batch of AI usage points between two sends: it is sent
+-- early at the high-water mark, and the documents its bound has no room for
+-- are counted and warned about.
 --
 -- Needs libdd-ai-usage-ffi: DD_AI_USAGE_FFI_LIBRARY, lua_package_cpath, or the
 -- loader's search path.
@@ -154,14 +154,18 @@ local function duration_samples()
     return n
 end
 
--- Documents one request adds to the batch.
-local function documents_per_request()
+-- The points the first request adds to an empty batch, and those each
+-- further request like it adds: its counters share the first one's series,
+-- so only its histogram samples are new points.
+local function points_per_request()
     reset()
     ai_usage.take_lines()
     log_request()
-    local n = ai_usage.buffered_documents()
+    local first = ai_usage.buffered_points()
+    log_request()
+    local next = ai_usage.buffered_points() - first
     ai_usage.take_lines()
-    return n
+    return first, next
 end
 
 -- The count a drop warning reports since the last one.
@@ -170,19 +174,19 @@ local function dropped_in(warning)
 end
 
 describe("ai usage buffer", function()
-    local defaults, per_request
+    local defaults, first, step
 
     setup(function()
-        defaults = { max_documents = ai_usage.limits.max_documents, high_water = ai_usage.limits.high_water }
-        per_request = documents_per_request()
+        defaults = { max_points = ai_usage.limits.max_points, high_water = ai_usage.limits.high_water }
+        first, step = points_per_request()
+        assert.is_true(step > 0 and first >= step)
     end)
 
     before_each(function()
         ai_usage.take_lines()
         ai_usage.drops.pending, ai_usage.drops.total, ai_usage.drops.warned_at = 0, 0, nil
         -- Room for ten requests, and an early send after eight.
-        ai_usage.limits.max_documents = per_request * 10
-        ai_usage.limits.high_water = per_request * 8
+        ai_usage.set_limits(first + 9 * step, first + 7 * step)
     end)
 
     after_each(function()
@@ -190,11 +194,11 @@ describe("ai usage buffer", function()
     end)
 
     teardown(function()
-        ai_usage.limits.max_documents, ai_usage.limits.high_water = defaults.max_documents, defaults.high_water
+        ai_usage.set_limits(defaults.max_points)
     end)
 
     it("defaults to an early send at 80% of the cap", function()
-        assert.equal(math.floor(defaults.max_documents * 0.8), defaults.high_water)
+        assert.equal(math.floor(defaults.max_points * 0.8), defaults.high_water)
     end)
 
     it("schedules one early send at the high-water mark, off the request path", function()
@@ -211,7 +215,7 @@ describe("ai usage buffer", function()
         assert.equal(1, #timers.at)
         run_early_timers()
         assert.equal(9, duration_samples())
-        assert.equal(0, ai_usage.buffered_documents())
+        assert.equal(0, ai_usage.buffered_points())
         -- The next high-water mark schedules another.
         for _ = 1, 8 do
             log_request()
@@ -233,21 +237,27 @@ describe("ai usage buffer", function()
         assert.equal(1, #timers.at)
     end)
 
-    it("counts and warns about documents over the cap, at most once a minute", function()
+    it("counts and warns about documents over the bound, at most once a minute", function()
         reset({ no_timers = true })
         for _ = 1, 10 do
             log_request()
         end
         assert.equal(0, ai_usage.drops.total)
         assert.equal(0, #warnings)
-        for _ = 1, 3 do
+        log_request()
+        -- Each document is dropped whole when its new points do not fit: the
+        -- provider attempt's duration sample does not, while a document whose
+        -- counters add to series already held takes no room.
+        local per_request = ai_usage.drops.total
+        assert.is_true(per_request >= 1 and per_request <= 3, tostring(per_request))
+        for _ = 1, 2 do
             log_request()
         end
         assert.equal(3 * per_request, ai_usage.drops.total)
-        -- The first drop warns at once.
+        -- The first drop warns at once, with the request it happened in.
         assert.equal(1, #warnings)
-        local first = dropped_in(warnings[1])
-        assert.is_true(first >= 1 and first <= per_request, warnings[1])
+        local warned = dropped_in(warnings[1])
+        assert.equal(per_request, warned, warnings[1])
         clock = clock + 30
         log_request()
         assert.equal(1, #warnings)
@@ -255,7 +265,7 @@ describe("ai usage buffer", function()
         clock = clock + 31
         ai_usage.flush()
         assert.equal(2, #warnings)
-        assert.equal(4 * per_request - first, dropped_in(warnings[2]), warnings[2])
+        assert.equal(4 * per_request - warned, dropped_in(warnings[2]), warnings[2])
         assert.truthy(warnings[2]:find(", " .. 4 * per_request .. " in all", 1, true), warnings[2])
         assert.equal(10, duration_samples())
     end)
