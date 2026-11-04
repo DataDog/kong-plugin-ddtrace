@@ -17,10 +17,13 @@
 -- the usage object, the model and the service tier of a response are kept.
 --
 -- The metrics are sent to the Datadog Agent over DogStatsD.
+--
+-- Reading provider usage, the metric profiles, the Datadog series and their
+-- DogStatsD encoding, provider names, error types and provider ids are
+-- libdatadog's (libdd-ai-usage-ffi), so that every gateway sends the same
+-- series for the same response. This module only gathers what Kong knows.
 
-local cjson = require("cjson.safe")
-local projection = require("kong.plugins.ddtrace.ai_usage_projection")
-local dogstatsd = require("kong.plugins.ddtrace.ai_usage_dogstatsd")
+local usage_ffi = require("kong.plugins.ddtrace.ai_usage_ffi")
 
 local ngx = ngx
 local kong = kong
@@ -29,9 +32,6 @@ local pairs = pairs
 local ipairs = ipairs
 local tostring = tostring
 local str_find = string.find
-local str_sub = string.sub
-local str_lower = string.lower
-local concat = table.concat
 
 local _M = {}
 
@@ -48,20 +48,6 @@ local DEFAULT_METRICS = {
     ["trajectory.gen_ai.gateway.request.estimated_cost"] = true,
 }
 _M.DEFAULT_METRICS = DEFAULT_METRICS
-
--- Kong's provider names, as OpenTelemetry's well-known gen_ai.provider.name
--- values where they differ.
-local PROVIDERS = {
-    openai = "openai",
-    azure = "azure.ai.openai",
-    anthropic = "anthropic",
-    cohere = "cohere",
-    mistral = "mistral_ai",
-    gemini = "gcp.gemini",
-    bedrock = "aws.bedrock",
-    huggingface = "huggingface",
-    llama2 = "llama2",
-}
 
 local ROUTE_OPERATIONS = {
     ["llm/v1/chat"] = "chat",
@@ -80,42 +66,17 @@ local KONG_COUNTS_REPORTED = {
     bedrock = true,
 }
 
--- An upstream status as the error type LiteLLM records for it, so that both
--- gateways give one series.
-local STATUS_ERRORS = {
-    [400] = "bad_request_error",
-    [401] = "authentication_error",
-    [403] = "permission_denied_error",
-    [404] = "not_found_error",
-    [408] = "timeout",
-    [413] = "bad_request_error",
-    [422] = "bad_request_error",
-    [429] = "rate_limit_error",
-    [500] = "internal_server_error",
-    [502] = "bad_gateway_error",
-    [503] = "service_unavailable_error",
-    [504] = "timeout",
-    [529] = "internal_server_error",
-}
-
--- The response headers that name the account and project a call was billed
--- to: (provider, attribute, header). No other header is read.
-local ID_HEADERS = {
-    { "anthropic", "trajectory.request.provider_account_id", "anthropic-organization-id" },
-    -- The organization's name, not its org- id.
-    { "openai", "trajectory.request.provider_account_id", "openai-organization" },
-    { "openai", "trajectory.request.project_id", "openai-project" },
-}
+-- The response headers that can name the billed account and project; which
+-- of them counts for which provider is the library's rule.
+local PROVIDER_ID_HEADERS = { "anthropic-organization-id", "openai-organization", "openai-project" }
 
 local OPT_IN_PROVIDER_IDS = {
     provider_account = "trajectory.request.provider_account_id",
     project = "trajectory.request.project_id",
 }
 
--- A streamed line longer than this is skipped rather than buffered.
-local MAX_LINE_BYTES = 1024 * 1024
--- The most points a batch holds between two sends.
-local MAX_BATCH_POINTS = 100000
+-- The most request documents a batch holds between two sends.
+local MAX_BATCH_DOCUMENTS = 20000
 -- A buffered response larger than this is not decoded.
 local MAX_BODY_BYTES = 16 * 1024 * 1024
 
@@ -147,6 +108,21 @@ local function count(value)
     return nil
 end
 
+local logged_unavailable = false
+
+-- Whether the library is loaded; says once per worker when it is not.
+local function available()
+    if usage_ffi.available() then
+        return true
+    end
+    if not logged_unavailable then
+        logged_unavailable = true
+        kong.log.err("ddtrace: AI usage metrics are off: cannot load libdd-ai-usage-ffi: ",
+            tostring(usage_ffi.load_error))
+    end
+    return false
+end
+
 local function string_value(value)
     if type(value) == "string" and value ~= "" then
         return value
@@ -162,14 +138,10 @@ local function provider_name(model)
     if provider == "gemini" then
         local options = type(model.options) == "table" and model.options.gemini
         if type(options) == "table" and (options.api_endpoint or options.project_id) then
-            return "gcp.vertex_ai"
+            provider = "vertex_ai"
         end
     end
-    local name = PROVIDERS[provider] or str_lower(provider):gsub("[^a-z0-9_.%-]", "_")
-    if projection.is_identifier(name) then
-        return name
-    end
-    return nil
+    return usage_ffi.provider_name(provider)
 end
 
 -- The operation of a passthrough (preserve) route, from the upstream path.
@@ -195,93 +167,35 @@ end
 
 local function error_type(status, source)
     if status == nil or source == "error" then
+        -- Kong could not get a response from the provider.
         local upstream = tonumber(ngx.var.upstream_status)
         if upstream == 504 or status == 504 then
-            return "timeout"
+            return usage_ffi.error_type("", 504)
         end
-        return "api_connection_error"
+        return usage_ffi.error_type("APIConnectionError", 0)
     end
-    return STATUS_ERRORS[status] or "api_error"
+    -- A status that is not a failure but not 200 either is api_error.
+    return usage_ffi.error_type("", status) or usage_ffi.error_type("provider_error", 0)
 end
 
 -- Usage from a provider response
 
--- Merge a usage object into the usage seen so far: a later event's counts
--- replace earlier ones (Anthropic's message_delta carries the final counts).
-local function merge_usage(state, usage)
-    if type(usage) ~= "table" then
-        return
+-- Feed a stream's chunks to the library as they pass.
+local function feed_stream(state, chunk)
+    if not state.stream_reader then
+        state.stream_reader = usage_ffi.new_stream("auto", state.embeddings)
     end
-    local merged = state.usage or {}
-    for key, value in pairs(usage) do
-        if value ~= cjson.null then
-            merged[key] = value
-        end
-    end
-    state.usage = merged
-end
-
-local function note_response(state, t)
-    if type(t) ~= "table" then
-        return
-    end
-    local event = t.type
-    if event == "message_start" and type(t.message) == "table" then
-        -- Anthropic Messages stream.
-        state.response_model = state.response_model or string_value(t.message.model)
-        merge_usage(state, t.message.usage)
-    elseif type(t.response) == "table" and type(event) == "string" and event:find("^response%.") then
-        -- OpenAI Responses stream.
-        state.response_model = string_value(t.response.model) or state.response_model
-        state.service_tier = string_value(t.response.service_tier) or state.service_tier
-        merge_usage(state, t.response.usage)
-    else
-        state.response_model = state.response_model or string_value(t.model) or string_value(t.modelVersion)
-        state.service_tier = string_value(t.service_tier) or state.service_tier
-        merge_usage(state, t.usage)
+    if state.stream_reader then
+        state.stream_reader:feed(chunk)
     end
 end
 
--- Read one server-sent event line. Only lines that can carry the usage,
--- the model or the service tier are decoded: content events hold the
--- generated output. A quote inside a JSON string is escaped, so generated
--- text cannot contain these quoted names.
-local function scan_sse_line(state, line)
-    if not str_find(line, '"usage"', 1, true) and not str_find(line, '"service_tier"', 1, true) then
-        if state.response_model or not str_find(line, '"model"', 1, true) then
-            return
-        end
+local function finish_stream(state)
+    local reader = state.stream_reader
+    if reader then
+        state.stream_reader = nil
+        state.response = reader:finish()
     end
-    local start = str_find(line, "{", 1, true)
-    if not start then
-        return
-    end
-    local t = cjson.decode(str_sub(line, start))
-    note_response(state, t)
-end
-
-local function scan_sse_chunk(state, chunk)
-    local text = (state.rest or "") .. chunk
-    local position = 1
-    while true do
-        local newline = str_find(text, "\n", position, true)
-        if not newline then
-            break
-        end
-        local line = str_sub(text, position, newline - 1)
-        if state.skip_line then
-            state.skip_line = false
-        elseif #line > 0 then
-            scan_sse_line(state, line)
-        end
-        position = newline + 1
-    end
-    local rest = str_sub(text, position)
-    if #rest > MAX_LINE_BYTES then
-        state.skip_line = true
-        rest = ""
-    end
-    state.rest = rest
 end
 
 local function read_buffered_body(state)
@@ -302,90 +216,8 @@ local function read_buffered_body(state)
         end
         body = inflated
     end
-    if str_find(body, "^%s*data:") or str_find(body, "^%s*event:") then
-        scan_sse_chunk(state, body .. "\n")
-    else
-        note_response(state, cjson.decode(body))
-    end
+    state.response = usage_ffi.parse_provider_response("auto", state.embeddings, body)
 end
-
-local function detail(details, key)
-    return type(details) == "table" and count(details[key]) or nil
-end
-
--- The token fields of an observation from a provider's usage object.
--- Chat Completions usage (prompt_tokens includes cached input, and
--- completion_tokens includes reasoning) and Responses usage (input_tokens
--- and output_tokens, also inclusive) are read as they are; Anthropic's
--- input_tokens leaves cache reads and writes out. A usage object of zeros
--- is no usage.
-local function usage_fields(usage, embeddings, claude, reasoning_known)
-    if type(usage) ~= "table" then
-        return {}
-    end
-    local input = count(usage.prompt_tokens)
-    local output = count(usage.completion_tokens)
-    local basis = "includes_cache"
-    local prompt_details = usage.prompt_tokens_details
-    local completion_details = usage.completion_tokens_details
-    if input == nil and output == nil then
-        input = count(usage.input_tokens)
-        output = count(usage.output_tokens)
-        prompt_details = usage.input_tokens_details
-        completion_details = usage.output_tokens_details
-        if count(usage.cache_read_input_tokens) ~= nil or count(usage.cache_creation_input_tokens) ~= nil then
-            basis = "excludes_cache"
-        end
-    end
-    if (input or 0) == 0 and (output or 0) == 0 then
-        return {}
-    end
-    local fields = { input_tokens = input, input_basis = basis }
-    if not embeddings then
-        fields.output_tokens = output
-        fields.output_basis = "includes_reasoning"
-    end
-    local cache_read = count(usage.cache_read_input_tokens)
-    if cache_read == nil then
-        cache_read = detail(prompt_details, "cached_tokens")
-    end
-    fields.cache_read_input_tokens = cache_read
-    local cache_write = count(usage.cache_creation_input_tokens)
-    if cache_write == nil then
-        cache_write = detail(prompt_details, "cache_creation_tokens")
-    end
-    fields.cache_write_input_tokens = cache_write
-    local lifetimes = type(prompt_details) == "table" and prompt_details.cache_creation_token_details
-    if type(lifetimes) ~= "table" then
-        lifetimes = usage.cache_creation
-    end
-    fields.cache_write_5m_input_tokens = detail(lifetimes, "ephemeral_5m_input_tokens")
-    fields.cache_write_1h_input_tokens = detail(lifetimes, "ephemeral_1h_input_tokens")
-    if not embeddings and not claude and reasoning_known then
-        fields.reasoning_output_tokens = detail(completion_details, "reasoning_tokens")
-    end
-    if not claude then
-        local sides = { { "input", prompt_details } }
-        if not embeddings then
-            sides[2] = { "output", completion_details }
-        end
-        for _, side in ipairs(sides) do
-            local parts
-            for _, modality in ipairs({ "image", "audio" }) do
-                local value = detail(side[2], modality .. "_tokens")
-                if value ~= nil then
-                    parts = parts or {}
-                    parts[modality] = value
-                end
-            end
-            if parts then
-                fields[side[1] .. "_tokens_by_modality"] = parts
-            end
-        end
-    end
-    return fields
-end
-_M.usage_fields = usage_fields
 
 -- Kong's own counts, for a provider whose response carried none.
 local function kong_usage_fields(embeddings)
@@ -416,68 +248,55 @@ end
 -- Writer
 
 -- The batch of this worker, sent by a timer.
-local batch = dogstatsd.new_batch()
+local batch = usage_ffi.available() and usage_ffi.new_batch() or nil
 local writer = { started = false }
 
 -- An email address, the one form of consumer name that is known to be a
 -- person rather than a service.
 local function person(value)
     value = string_value(value)
-    if value and value:match("^[^@%s]+@[^@%s]+%.[^@%s]+$") then
+    if value and usage_ffi.is_person_identifier(value) then
         return value
     end
     return nil
 end
 
--- The largest DogStatsD datagram: the usual Ethernet MTU less IP and UDP
--- headers, as Datadog's DogStatsD clients use for UDP.
-local MAX_DATAGRAM_BYTES = 1432
-
-local function send_lines(lines, host, port)
+local function send_datagrams(datagrams, host, port)
     local sock = ngx.socket.udp()
     local ok, err = sock:setpeername(host, port)
     if not ok then
         kong.log.warn("ddtrace: cannot send AI usage metrics to ", host, ":", tostring(port), ": ", err)
         return
     end
-    -- Several lines per datagram, each small enough to cross a network
-    -- without IP fragmentation, which can drop it on the way to the Agent.
-    local packet, size = {}, 0
+    -- The library packed the lines into datagrams small enough to cross a
+    -- network without IP fragmentation, which can drop them on the way.
     local dropped, last_err = 0, nil
-    local function send()
-        local sent, send_err = sock:send(concat(packet, "\n"))
+    for _, datagram in ipairs(datagrams) do
+        local sent, send_err = sock:send(datagram)
         if not sent then
-            dropped = dropped + #packet
+            dropped = dropped + 1
             last_err = send_err
         end
-        packet, size = {}, 0
-    end
-    for _, line in ipairs(lines) do
-        if size > 0 and size + #line + 1 > MAX_DATAGRAM_BYTES then
-            send()
-        end
-        packet[#packet + 1] = line
-        size = size + #line + 1
-    end
-    if size > 0 then
-        send()
     end
     sock:close()
     if dropped > 0 then
         -- Once per flush at most: the Agent being down or not listening must
         -- not lose metrics silently.
         kong.log.warn("ddtrace: sending AI usage metrics to ", host, ":", tostring(port),
-            " failed (", tostring(last_err), "); ", dropped, " lines dropped")
+            " failed (", tostring(last_err), "); ", dropped, " datagrams dropped")
     end
 end
 
 local function flush()
-    if batch:is_empty() then
+    if not batch or batch:is_empty() then
         return
     end
-    local lines = batch:lines()
-    batch = dogstatsd.new_batch()
-    send_lines(lines, writer.host, writer.port)
+    local datagrams, err = batch:take_dogstatsd("", usage_ffi.UDP_MAX_PAYLOAD)
+    if not datagrams then
+        kong.log.err("ddtrace: cannot encode AI usage metrics: ", err)
+        return
+    end
+    send_datagrams(datagrams, writer.host, writer.port)
 end
 _M.flush = flush
 
@@ -505,44 +324,48 @@ local function ensure_writer(target)
     writer.started = true
 end
 
--- Test hook: the batch recorded so far, and a new one.
-function _M.take_batch()
-    local taken = batch
-    batch = dogstatsd.new_batch()
-    return taken
-end
-
-local function record(profile, points, resource)
-    -- Points are kept until the next send; a writer that cannot send does not
-    -- hold more than this many.
-    if batch.size >= MAX_BATCH_POINTS then
-        return
+-- Test hook: the DogStatsD lines recorded so far, sorted; the batch is
+-- emptied.
+function _M.take_lines()
+    local lines = {}
+    if not batch then
+        return lines
     end
-    local kept = {}
-    for _, point in ipairs(points) do
-        if DEFAULT_METRICS[point.name] then
-            kept[#kept + 1] = point
+    for _, datagram in ipairs(batch:take_dogstatsd("", 65536) or {}) do
+        for line in datagram:gmatch("[^\n]+") do
+            lines[#lines + 1] = line
         end
     end
-    if #kept == 0 then
-        return
-    end
-    local ok, err = batch:add(profile, kept, resource, false)
-    if not ok then
-        kong.log.debug("ddtrace: AI usage points not recorded: ", err)
-    end
+    table.sort(lines)
+    return lines
 end
 
-local function project(projector, profile, observation, attributes)
-    local points, err = projector(observation)
-    if not points then
-        kong.log.debug("ddtrace: AI usage observation rejected (", profile, "): ", err)
+local PROFILES = {
+    provider_attempt = "gen_ai.client.provider_attempt@0.1.0",
+    token_breakdown = "trajectory.gen_ai.client.token_breakdown@0.1.0",
+    gateway_request = "trajectory.gen_ai.gateway.request@0.1.0",
+}
+
+local METRIC_NAMES = {}
+for name in pairs(DEFAULT_METRICS) do
+    METRIC_NAMES[#METRIC_NAMES + 1] = name
+end
+table.sort(METRIC_NAMES)
+
+local function project(profile, observation, attributes)
+    -- Points are kept until the next send; a writer that cannot send does not
+    -- hold more than this many requests.
+    if not batch or batch.documents >= MAX_BATCH_DOCUMENTS then
         return
     end
-    local resource
-    points, resource = projection.with_deployment_attributes(points, attributes)
-    if points then
-        record(profile, points, resource)
+    local ok, err = batch:add({
+        profile = profile,
+        observation = observation,
+        deployment_attributes = attributes,
+        metrics = METRIC_NAMES,
+    })
+    if not ok then
+        kong.log.debug("ddtrace: AI usage observation rejected (", profile, "): ", err)
     end
 end
 
@@ -551,7 +374,7 @@ end
 -- header_filter: this plugin runs before the AI proxy's own filters, so the
 -- provider's status and headers are as it sent them.
 function _M.header_filter(conf)
-    if not conf.ai_usage_metrics_enabled then
+    if not conf.ai_usage_metrics_enabled or not available() then
         return
     end
     local request, global = ai_state()
@@ -566,15 +389,20 @@ function _M.header_filter(conf)
         stream = global.stream_mode == true,
         sse = str_find(content_type, "text/event-stream", 1, true) ~= nil,
         gzip = response.get_header("Content-Encoding") == "gzip",
-        headers = {},
+        embeddings = operation_name(request.route_type) == "embeddings",
     }
     local tags = enabled_tags(conf)
     if tags.provider_account or tags.project then
-        for _, id in ipairs(ID_HEADERS) do
-            local value = response.get_header(id[3])
-            if type(value) == "string" then
-                state.headers[id[3]] = value
+        -- The library reads the account and project from these headers, and
+        -- the account a Bedrock model ARN names. A buffered response's
+        -- get_headers() cannot be iterated, so each header is fetched.
+        local provider = provider_name(request.model)
+        if provider then
+            local headers = {}
+            for _, name in ipairs(PROVIDER_ID_HEADERS) do
+                headers[name] = response.get_header(name)
             end
+            state.provider_ids = usage_ffi.provider_ids(provider, headers, { request.model.name })
         end
     end
     kong.ctx.plugin.ai_usage = state
@@ -590,27 +418,21 @@ function _M.body_filter(_)
     if state.sse and state.status == 200 and not state.gzip and not ngx.ctx.buffered_proxying then
         local chunk = ngx.arg[1]
         if type(chunk) == "string" and #chunk > 0 then
-            scan_sse_chunk(state, chunk)
+            feed_stream(state, chunk)
         end
     end
     if ngx.arg[2] then
-        if state.rest and #state.rest > 0 then
-            scan_sse_chunk(state, "\n")
-        end
+        finish_stream(state)
         ngx.update_time()
         state.ended_at = ngx.now()
     end
 end
 
-local function deployment_attributes(conf, target, tags, model_provider, state)
+local function deployment_attributes(conf, target, tags, state)
     local attributes = {}
-    if tags.provider_account or tags.project then
-        for _, id in ipairs(ID_HEADERS) do
-            local provider, attribute, header = id[1], id[2], id[3]
-            local tag = attribute == OPT_IN_PROVIDER_IDS.provider_account and "provider_account" or "project"
-            if model_provider == provider and tags[tag] and attributes[attribute] == nil then
-                attributes[attribute] = state.headers[header]
-            end
+    for tag, attribute in pairs(OPT_IN_PROVIDER_IDS) do
+        if tags[tag] and type(state.provider_ids) == "table" then
+            attributes[attribute] = state.provider_ids[attribute]
         end
     end
     -- The ids the operator declared win, and are sent whenever declared. The
@@ -680,7 +502,7 @@ end
 
 -- log: build and record the observations of the request.
 function _M.log(conf, target)
-    if not conf.ai_usage_metrics_enabled then
+    if not conf.ai_usage_metrics_enabled or not available() then
         return
     end
     local request = ai_state()
@@ -693,7 +515,7 @@ function _M.log(conf, target)
     if not operation or not provider then
         return
     end
-    local state = kong.ctx.plugin.ai_usage or { headers = {} }
+    local state = kong.ctx.plugin.ai_usage or {}
     kong.ctx.plugin.ai_usage = nil
     ngx.update_time()
     local now = ngx.now()
@@ -712,7 +534,7 @@ function _M.log(conf, target)
     local err = failed and error_type(status, state.source or kong.response.get_source()) or nil
 
     local tags = enabled_tags(conf)
-    local attributes = deployment_attributes(conf, target, tags, model.provider, state)
+    local attributes = deployment_attributes(conf, target, tags, state)
 
     local gateway_cost
     -- The provider attempt: Kong reached the balancer for it.
@@ -731,19 +553,19 @@ function _M.log(conf, target)
         }
         if not failed then
             if not state.sse then
+                state.embeddings = embeddings
                 read_buffered_body(state)
             end
-            observation.response_model = state.response_model
-            local claude = model.provider == "anthropic" or str_find(str_lower(request_model or ""), "claude", 1, true)
-            local usage = state.usage
-            -- A stream reports reasoning only when its usage names it.
-            local reasoning_known = not state.stream
-                or (
-                    type(usage) == "table"
-                    and type(usage.completion_tokens_details) == "table"
-                    and usage.completion_tokens_details.reasoning_tokens ~= nil
-                )
-            local fields = usage_fields(usage, embeddings, claude, reasoning_known)
+            -- The provider's own usage, model and tier, as the library read
+            -- them.
+            local response = type(state.response) == "table" and state.response or {}
+            observation.response_model = string_value(response.response_model)
+            if response.outcome == "failed" then
+                -- The provider reported a failure inside a 200 response.
+                err = response.error_type
+                observation.error_type = err
+            end
+            local fields = type(response.usage) == "table" and response.usage or {}
             local estimated = false
             if next(fields) == nil then
                 fields = kong_usage_fields(embeddings)
@@ -762,19 +584,11 @@ function _M.log(conf, target)
                 observation.cost_source = "estimated"
                 gateway_cost = cost
             end
-            -- The tier the provider served the call at: the response's own
-            -- (OpenAI), else its usage object's (Anthropic).
-            local tier = state.service_tier
-            if tier == nil and type(usage) == "table" then
-                tier = string_value(usage.service_tier)
-            end
-            if projection.is_service_tier(tier) then
-                observation.service_tier = tier
-            end
+            observation.service_tier = string_value(response.service_tier)
         end
-        project(projection.project_provider_attempt, projection.PROVIDER_ATTEMPT, observation, attributes)
+        project(PROFILES.provider_attempt, observation, attributes)
         if observation.input_tokens ~= nil then
-            project(projection.project_token_breakdown, projection.TOKEN_BREAKDOWN, observation, attributes)
+            project(PROFILES.token_breakdown, observation, attributes)
         end
     end
 
@@ -794,7 +608,7 @@ function _M.log(conf, target)
     else
         gateway.estimated_cost_usd = gateway_cost
     end
-    project(projection.project_gateway_request, projection.GATEWAY_REQUEST, gateway, attributes)
+    project(PROFILES.gateway_request, gateway, attributes)
 
     if target then
         ensure_writer(target)

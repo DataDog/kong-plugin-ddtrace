@@ -102,13 +102,17 @@ AI Proxy plugin (`ai-proxy`) sends to a model provider. The metrics follow the
 [OpenTelemetry GenAI metrics semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-token-metrics.md)
 and are the same series that Datadog's LiteLLM integration sends, so dashboards and monitors work across
 both gateways. They are sent to the Datadog Agent over DogStatsD (`agent_host`, `dogstatsd_port`).
-Kong Gateway `v3.9` or newer is required.
+Kong Gateway `v3.9` or newer is required, with libdatadog's `libdd-ai-usage-ffi` shared library
+installed: it reads the providers' usage and encodes the series, as every Datadog gateway integration does.
+The plugin loads it from `DD_AI_USAGE_FFI_LIBRARY` (a path) when set, else from `lua_package_cpath`
+(`libdd_ai_usage_ffi.so`), else through the system's library search path. Without it, the plugin logs one
+error per worker and sends no AI usage metrics; tracing is unaffected.
 
 Per request to a model provider:
 
 | Metric | Type | Description |
 | ------ | ---- | ----------- |
-| `gen_ai.client.inference.duration` | distribution | Duration of the provider request, in seconds (`gen_ai.client.operation.duration` for embeddings), with `error.type` when it failed |
+| `gen_ai.client.inference.duration` | distribution | Duration of the provider request, in seconds (`gen_ai.client.operation.duration` for embeddings), with `error.type` when it failed (`bad_request_error`, `rate_limit_error`, `timeout_error`, `internal_server_error`, `api_connection_error`, ...: the vocabulary all Datadog gateways share) |
 | `gen_ai.client.inference.usage.input_tokens` | count | Input tokens, cached input included |
 | `gen_ai.client.inference.usage.output_tokens` | count | Output tokens, reasoning included |
 | `gen_ai.client.inference.usage.cache_read.input_tokens` | count | Input tokens read from the provider's prompt cache, when the provider reports them |
@@ -139,7 +143,8 @@ response, or the usage events of a stream (for OpenAI streams, the client must a
 Optional tags, with `ai_usage_metrics_tags`:
 
 - `provider_account`, `project`: the account and project the provider billed, from its response headers
-  (`openai-organization`, `openai-project`, `anthropic-organization-id`), sent as
+  (`openai-organization`, `openai-project`, `anthropic-organization-id`) or, for Bedrock, the account of a
+  model ARN, sent as
   `trajectory.request.provider_account_id` and `trajectory.request.project_id`. The values declared with
   `ai_usage_metrics_provider_account_id` and `ai_usage_metrics_project_id` take precedence, and are sent
   whether or not these tags are enabled.
