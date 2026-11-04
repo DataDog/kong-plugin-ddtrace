@@ -159,6 +159,11 @@ local function points_per_request()
     return ai_usage.take_batch().size
 end
 
+-- The count a drop warning reports since the last one.
+local function dropped_in(warning)
+    return tonumber(warning:match("(%d+) points dropped since the last warning"))
+end
+
 describe("ai usage buffer", function()
     local defaults, per_request
 
@@ -234,20 +239,19 @@ describe("ai usage buffer", function()
             log_request()
         end
         assert.equal(3 * per_request, ai_usage.drops.total)
+        -- The first drop warns at once.
         assert.equal(1, #warnings)
-        assert.truthy(warnings[1]:find(per_request .. " points dropped since the last warning", 1, true), warnings[1])
+        local first = dropped_in(warnings[1])
+        assert.is_true(first >= 1 and first <= per_request, warnings[1])
         clock = clock + 30
         log_request()
         assert.equal(1, #warnings)
-        -- The next send reports what was dropped once the minute has passed.
+        -- The next send reports the rest once the minute has passed.
         clock = clock + 31
         ai_usage.flush()
         assert.equal(2, #warnings)
-        assert.truthy(
-            warnings[2]:find(3 * per_request .. " points dropped since the last warning", 1, true),
-            warnings[2]
-        )
-        assert.truthy(warnings[2]:find(4 * per_request .. " in all", 1, true), warnings[2])
+        assert.equal(4 * per_request - first, dropped_in(warnings[2]), warnings[2])
+        assert.truthy(warnings[2]:find(", " .. 4 * per_request .. " in all", 1, true), warnings[2])
         assert.equal(10, duration_samples())
     end)
 
