@@ -75,8 +75,17 @@ local OPT_IN_PROVIDER_IDS = {
     project = "trajectory.request.project_id",
 }
 
--- The most request documents a batch holds between two sends.
+-- Request documents wait in a per-worker batch until the next send. The
+-- timer sends every flush interval, and a batch that reaches the high-water
+-- mark is sent at once by a zero-delay timer, so the rate a worker can carry
+-- does not depend on the interval. The cap is a memory ceiling: the 20% above
+-- the high-water mark only has to hold what arrives before that timer runs.
+-- Documents over it are dropped, counted and warned about; that happens only
+-- when sends cannot keep up (no timer can run, or the worker is starved).
 local MAX_BATCH_DOCUMENTS = 20000
+local HIGH_WATER_FRACTION = 0.8
+-- A warning about dropped documents is logged at most this often.
+local DROP_WARN_INTERVAL = 60
 -- A buffered response larger than this is not decoded.
 local MAX_BODY_BYTES = 16 * 1024 * 1024
 
@@ -117,8 +126,10 @@ local function available()
     end
     if not logged_unavailable then
         logged_unavailable = true
-        kong.log.err("ddtrace: AI usage metrics are off: cannot load libdd-ai-usage-ffi: ",
-            tostring(usage_ffi.load_error))
+        kong.log.err(
+            "ddtrace: AI usage metrics are off: cannot load libdd-ai-usage-ffi: ",
+            tostring(usage_ffi.load_error)
+        )
     end
     return false
 end
@@ -249,7 +260,16 @@ end
 
 -- The batch of this worker, sent by a timer.
 local batch = usage_ffi.available() and usage_ffi.new_batch() or nil
-local writer = { started = false }
+local writer = { started = false, early_pending = false }
+-- Limits of the batch; a table so tests can lower them.
+local limits = {
+    max_documents = MAX_BATCH_DOCUMENTS,
+    high_water = math.floor(MAX_BATCH_DOCUMENTS * HIGH_WATER_FRACTION),
+}
+_M.limits = limits
+-- Documents dropped since the last warning.
+local drops = { pending = 0, total = 0, warned_at = nil }
+_M.drops = drops
 
 -- An email address, the one form of consumer name that is known to be a
 -- person rather than a service.
@@ -282,12 +302,41 @@ local function send_datagrams(datagrams, host, port)
     if dropped > 0 then
         -- Once per flush at most: the Agent being down or not listening must
         -- not lose metrics silently.
-        kong.log.warn("ddtrace: sending AI usage metrics to ", host, ":", tostring(port),
-            " failed (", tostring(last_err), "); ", dropped, " datagrams dropped")
+        kong.log.warn(
+            "ddtrace: sending AI usage metrics to ",
+            host,
+            ":",
+            tostring(port),
+            " failed (",
+            tostring(last_err),
+            "); ",
+            dropped,
+            " datagrams dropped"
+        )
     end
 end
 
+-- Warn about the documents dropped since the last warning, at most once per
+-- DROP_WARN_INTERVAL.
+local function warn_drops(now)
+    if drops.pending == 0 or (drops.warned_at and now - drops.warned_at < DROP_WARN_INTERVAL) then
+        return
+    end
+    kong.log.warn(
+        "ddtrace: AI usage metrics buffer full (",
+        limits.max_documents,
+        " documents); ",
+        drops.pending,
+        " documents dropped since the last warning, ",
+        drops.total,
+        " in all"
+    )
+    drops.pending = 0
+    drops.warned_at = now
+end
+
 local function flush()
+    warn_drops(ngx.now())
     if not batch or batch:is_empty() then
         return
     end
@@ -310,6 +359,25 @@ local function on_timer(premature)
     end
 end
 
+local function on_early_timer(premature)
+    writer.early_pending = false
+    on_timer(premature)
+end
+
+-- Send the batch now, off the request path, once it reaches the high-water
+-- mark. When no timer can be created, the next request tries again.
+local function flush_if_full()
+    if writer.early_pending or not writer.started or not batch or batch.documents < limits.high_water then
+        return
+    end
+    local ok, err = ngx.timer.at(0, on_early_timer)
+    if not ok then
+        kong.log.debug("ddtrace: cannot schedule an early AI usage metrics send: ", err)
+        return
+    end
+    writer.early_pending = true
+end
+
 local function ensure_writer(target)
     writer.host = target.host
     writer.port = target.port
@@ -322,6 +390,11 @@ local function ensure_writer(target)
         return
     end
     writer.started = true
+end
+
+-- Test hook: the request documents waiting in the batch.
+function _M.buffered_documents()
+    return batch and batch.documents or 0
 end
 
 -- Test hook: the DogStatsD lines recorded so far, sorted; the batch is
@@ -353,9 +426,14 @@ end
 table.sort(METRIC_NAMES)
 
 local function project(profile, observation, attributes)
-    -- Points are kept until the next send; a writer that cannot send does not
-    -- hold more than this many requests.
-    if not batch or batch.documents >= MAX_BATCH_DOCUMENTS then
+    if not batch then
+        return
+    end
+    -- The memory ceiling: reached only when sends cannot keep up.
+    if batch.documents >= limits.max_documents then
+        drops.pending = drops.pending + 1
+        drops.total = drops.total + 1
+        warn_drops(ngx.now())
         return
     end
     local ok, err = batch:add({
@@ -612,6 +690,7 @@ function _M.log(conf, target)
 
     if target then
         ensure_writer(target)
+        flush_if_full()
     end
 end
 
