@@ -136,6 +136,11 @@ response, or the usage events of a stream (for OpenAI streams, the client must a
 `stream_options.include_usage`). The cost is only sent when the AI Proxy model sets `input_cost` and
 `output_cost`.
 
+Each Kong worker buffers its metrics and sends them every `ai_usage_metrics_flush_interval` seconds, or
+sooner when the buffer is 80% full, so the request rate does not depend on the interval. Metrics are dropped
+only when the buffer is full because sends cannot keep up; Kong then logs a warning with the number dropped,
+at most once a minute.
+
 Optional tags, with `ai_usage_metrics_tags`:
 
 - `provider_account`, `project`: the account and project the provider billed, from its response headers

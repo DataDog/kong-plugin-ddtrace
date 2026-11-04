@@ -114,8 +114,17 @@ local OPT_IN_PROVIDER_IDS = {
 
 -- A streamed line longer than this is skipped rather than buffered.
 local MAX_LINE_BYTES = 1024 * 1024
--- The most points a batch holds between two sends.
+-- Points wait in a per-worker batch until the next send. The timer sends
+-- every flush interval, and a batch that reaches the high-water mark is sent
+-- at once by a zero-delay timer, so the rate a worker can carry does not
+-- depend on the interval. The cap is a memory ceiling: the 20% above the
+-- high-water mark only has to hold what arrives before that timer runs.
+-- Points over it are dropped, counted and warned about; that happens only
+-- when sends cannot keep up (no timer can run, or the worker is starved).
 local MAX_BATCH_POINTS = 100000
+local HIGH_WATER_FRACTION = 0.8
+-- A warning about dropped points is logged at most this often.
+local DROP_WARN_INTERVAL = 60
 -- A buffered response larger than this is not decoded.
 local MAX_BODY_BYTES = 16 * 1024 * 1024
 
@@ -417,7 +426,13 @@ end
 
 -- The batch of this worker, sent by a timer.
 local batch = dogstatsd.new_batch()
-local writer = { started = false }
+local writer = { started = false, early_pending = false }
+-- Limits of the batch; a table so tests can lower them.
+local limits = { max_points = MAX_BATCH_POINTS, high_water = math.floor(MAX_BATCH_POINTS * HIGH_WATER_FRACTION) }
+_M.limits = limits
+-- Points dropped since the last warning.
+local drops = { pending = 0, total = 0, warned_at = nil }
+_M.drops = drops
 
 -- An email address, the one form of consumer name that is known to be a
 -- person rather than a service.
@@ -466,12 +481,41 @@ local function send_lines(lines, host, port)
     if dropped > 0 then
         -- Once per flush at most: the Agent being down or not listening must
         -- not lose metrics silently.
-        kong.log.warn("ddtrace: sending AI usage metrics to ", host, ":", tostring(port),
-            " failed (", tostring(last_err), "); ", dropped, " lines dropped")
+        kong.log.warn(
+            "ddtrace: sending AI usage metrics to ",
+            host,
+            ":",
+            tostring(port),
+            " failed (",
+            tostring(last_err),
+            "); ",
+            dropped,
+            " lines dropped"
+        )
     end
 end
 
+-- Warn about the points dropped since the last warning, at most once per
+-- DROP_WARN_INTERVAL.
+local function warn_drops(now)
+    if drops.pending == 0 or (drops.warned_at and now - drops.warned_at < DROP_WARN_INTERVAL) then
+        return
+    end
+    kong.log.warn(
+        "ddtrace: AI usage metrics buffer full (",
+        limits.max_points,
+        " points); ",
+        drops.pending,
+        " points dropped since the last warning, ",
+        drops.total,
+        " in all"
+    )
+    drops.pending = 0
+    drops.warned_at = now
+end
+
 local function flush()
+    warn_drops(ngx.now())
     if batch:is_empty() then
         return
     end
@@ -489,6 +533,25 @@ local function on_timer(premature)
     if premature then
         return
     end
+end
+
+local function on_early_timer(premature)
+    writer.early_pending = false
+    on_timer(premature)
+end
+
+-- Send the batch now, off the request path, once it reaches the high-water
+-- mark. When no timer can be created, the next request tries again.
+local function flush_if_full()
+    if writer.early_pending or not writer.started or batch.size < limits.high_water then
+        return
+    end
+    local ok, err = ngx.timer.at(0, on_early_timer)
+    if not ok then
+        kong.log.debug("ddtrace: cannot schedule an early AI usage metrics send: ", err)
+        return
+    end
+    writer.early_pending = true
 end
 
 local function ensure_writer(target)
@@ -513,11 +576,6 @@ function _M.take_batch()
 end
 
 local function record(profile, points, resource)
-    -- Points are kept until the next send; a writer that cannot send does not
-    -- hold more than this many.
-    if batch.size >= MAX_BATCH_POINTS then
-        return
-    end
     local kept = {}
     for _, point in ipairs(points) do
         if DEFAULT_METRICS[point.name] then
@@ -525,6 +583,13 @@ local function record(profile, points, resource)
         end
     end
     if #kept == 0 then
+        return
+    end
+    -- The memory ceiling: reached only when sends cannot keep up.
+    if batch.size + #kept > limits.max_points then
+        drops.pending = drops.pending + #kept
+        drops.total = drops.total + #kept
+        warn_drops(ngx.now())
         return
     end
     local ok, err = batch:add(profile, kept, resource, false)
@@ -798,6 +863,7 @@ function _M.log(conf, target)
 
     if target then
         ensure_writer(target)
+        flush_if_full()
     end
 end
 
