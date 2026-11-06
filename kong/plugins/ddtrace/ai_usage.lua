@@ -80,7 +80,7 @@ local OPT_IN_PROVIDER_IDS = {
 -- before that timer runs. A document over it is dropped whole, counted and
 -- warned about; that happens only when sends cannot keep up (no timer can
 -- run, or the worker is starved).
-local MAX_BATCH_POINTS = 20000
+local MAX_BATCH_POINTS = 100000
 local HIGH_WATER_FRACTION = 0.8
 -- A warning about dropped documents is logged at most this often.
 local DROP_WARN_INTERVAL = 60
