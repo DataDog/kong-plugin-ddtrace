@@ -115,23 +115,6 @@ local function count(value)
     return nil
 end
 
-local logged_unavailable = false
-
--- Whether the library is loaded; says once per worker when it is not.
-local function available()
-    if usage_ffi.available() then
-        return true
-    end
-    if not logged_unavailable then
-        logged_unavailable = true
-        kong.log.err(
-            "ddtrace: AI usage metrics are off: cannot load libdd-ai-usage-ffi: ",
-            tostring(usage_ffi.load_error)
-        )
-    end
-    return false
-end
-
 local function string_value(value)
     if type(value) == "string" and value ~= "" then
         return value
@@ -257,7 +240,7 @@ end
 -- Writer
 
 -- The batch of this worker, sent by a timer.
-local batch = usage_ffi.available() and usage_ffi.new_batch() or nil
+local batch = assert(usage_ffi.new_batch())
 local writer = { started = false, early_pending = false }
 -- Limits of the batch, in points.
 local limits = {}
@@ -268,9 +251,7 @@ _M.limits = limits
 function _M.set_limits(max_points, high_water)
     limits.max_points = max_points
     limits.high_water = high_water or math.floor(max_points * HIGH_WATER_FRACTION)
-    if batch then
-        batch:set_max_len(max_points)
-    end
+    batch:set_max_len(max_points)
 end
 _M.set_limits(MAX_BATCH_POINTS)
 
@@ -327,13 +308,11 @@ end
 -- Warn about the documents dropped since the last warning, at most once per
 -- DROP_WARN_INTERVAL.
 local function warn_drops(now)
-    if batch then
-        local dropped = batch:dropped()
-        if dropped > drops.seen then
-            drops.pending = drops.pending + dropped - drops.seen
-            drops.total = drops.total + dropped - drops.seen
-            drops.seen = dropped
-        end
+    local dropped = batch:dropped()
+    if dropped > drops.seen then
+        drops.pending = drops.pending + dropped - drops.seen
+        drops.total = drops.total + dropped - drops.seen
+        drops.seen = dropped
     end
     if drops.pending == 0 or (drops.warned_at and now - drops.warned_at < DROP_WARN_INTERVAL) then
         return
@@ -353,7 +332,7 @@ end
 
 local function flush()
     warn_drops(ngx.now())
-    if not batch or batch:is_empty() then
+    if batch:is_empty() then
         return
     end
     local datagrams, err = batch:take_dogstatsd("", usage_ffi.UDP_MAX_PAYLOAD)
@@ -387,7 +366,7 @@ end
 -- Send the batch now, off the request path, once it reaches the high-water
 -- mark. When no timer can be created, the next request tries again.
 local function flush_if_full()
-    if writer.early_pending or not writer.started or not batch or batch:len() < limits.high_water then
+    if writer.early_pending or not writer.started or batch:len() < limits.high_water then
         return
     end
     local ok, err = ngx.timer.at(0, on_early_timer)
@@ -414,16 +393,13 @@ end
 
 -- Test hook: the points waiting in the batch.
 function _M.buffered_points()
-    return batch and batch:len() or 0
+    return batch:len()
 end
 
 -- Test hook: the DogStatsD lines recorded so far, sorted; the batch is
 -- emptied.
 function _M.take_lines()
     local lines = {}
-    if not batch then
-        return lines
-    end
     for _, datagram in ipairs(batch:take_dogstatsd("", 65536) or {}) do
         for line in datagram:gmatch("[^\n]+") do
             lines[#lines + 1] = line
@@ -444,28 +420,12 @@ for name in pairs(DEFAULT_METRICS) do
     METRIC_NAMES[#METRIC_NAMES + 1] = name
 end
 table.sort(METRIC_NAMES)
--- Set once on the batch, so that documents leave the list out.
-if batch then
+-- Set once on the batch, so that documents leave the list out. A library
+-- that does not know them is the wrong version: the plugin does not load.
+do
     local ok, err = batch:set_metrics(METRIC_NAMES)
     if not ok then
-        batch = nil
-        ngx.log(ngx.ERR, "ddtrace: AI usage metrics are off: the library refused the metric list: ", err)
-    end
-end
-
-local function project(profile, observation, attributes)
-    if not batch then
-        return
-    end
-    -- A document the bounded batch has no room for is dropped and counted
-    -- by the library; log() reads the count once per request.
-    local ok, err = batch:add({
-        profile = profile,
-        observation = observation,
-        deployment_attributes = attributes,
-    })
-    if not ok then
-        kong.log.debug("ddtrace: AI usage observation rejected (", profile, "): ", err)
+        error("ddtrace: libdd-ai-usage-ffi refused the AI usage metric list: " .. tostring(err))
     end
 end
 
@@ -474,7 +434,7 @@ end
 -- header_filter: this plugin runs before the AI proxy's own filters, so the
 -- provider's status and headers are as it sent them.
 function _M.header_filter(conf)
-    if not conf.ai_usage_metrics_enabled or not available() then
+    if not conf.ai_usage_metrics_enabled then
         return
     end
     local request, global = ai_state()
@@ -603,7 +563,7 @@ end
 
 -- log: build and record the observations of the request.
 function _M.log(conf, target)
-    if not conf.ai_usage_metrics_enabled or not available() then
+    if not conf.ai_usage_metrics_enabled then
         return
     end
     local request = ai_state()
@@ -637,6 +597,7 @@ function _M.log(conf, target)
     local tags = enabled_tags(conf)
     local attributes = deployment_attributes(conf, target, tags, state)
 
+    local documents = {}
     local gateway_cost
     -- The provider attempt: Kong reached the balancer for it.
     local attempt_start = ctx.KONG_BALANCER_START
@@ -687,9 +648,17 @@ function _M.log(conf, target)
             end
             observation.service_tier = string_value(response.service_tier)
         end
-        project(PROFILES.provider_attempt, observation, attributes)
+        documents[1] = {
+            profile = PROFILES.provider_attempt,
+            observation = observation,
+            deployment_attributes = attributes,
+        }
         if observation.input_tokens ~= nil then
-            project(PROFILES.token_breakdown, observation, attributes)
+            documents[2] = {
+                profile = PROFILES.token_breakdown,
+                observation = observation,
+                deployment_attributes = attributes,
+            }
         end
     end
 
@@ -709,9 +678,20 @@ function _M.log(conf, target)
     else
         gateway.estimated_cost_usd = gateway_cost
     end
-    project(PROFILES.gateway_request, gateway, attributes)
+    documents[#documents + 1] = {
+        profile = PROFILES.gateway_request,
+        observation = gateway,
+        deployment_attributes = attributes,
+    }
+    -- All of the request's documents or none: a full batch never keeps an
+    -- attempt without its breakdown. A request it has no room for is
+    -- counted by the library.
+    local ok, add_err = batch:add_request(documents)
+    if not ok then
+        kong.log.debug("ddtrace: AI usage observations rejected: ", add_err)
+    end
     -- The memory ceiling: reached only when sends cannot keep up.
-    if batch and batch:dropped() > drops.seen then
+    if batch:dropped() > drops.seen then
         warn_drops(now)
     end
 

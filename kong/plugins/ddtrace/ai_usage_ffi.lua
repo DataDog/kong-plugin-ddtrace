@@ -7,8 +7,11 @@
 -- which are NUL-separated text. Every buffer the library writes is copied
 -- into a Lua string and released before the call returns.
 --
--- The library is found at DD_AI_USAGE_FFI_LIBRARY when set, else on
--- lua_package_cpath, else by the dynamic loader's own search.
+-- The library is required: loading this module fails, and with it the
+-- plugin, when it cannot be found. It is loaded from DD_AI_USAGE_FFI_LIBRARY
+-- (a path) when set; else from lua_package_cpath, where the plugin's rock
+-- installs it as libdd_ai_usage_ffi-<arch>.so (x86_64 or aarch64); else by
+-- the dynamic loader's own search for libdd_ai_usage_ffi.so.
 
 local ffi = require("ffi")
 local cjson = require("cjson.safe")
@@ -28,10 +31,9 @@ typedef struct ddog_ai_usage_Batch ddog_ai_usage_Batch;
 typedef struct ddog_ai_usage_Stream ddog_ai_usage_Stream;
 typedef struct ddog_ai_usage_Buffer { uint8_t *ptr; uintptr_t len; } ddog_ai_usage_Buffer;
 
-int ddog_ai_usage_project(const char *input, uintptr_t input_len, ddog_ai_usage_Buffer *out);
 int ddog_ai_usage_batch_new(ddog_ai_usage_Batch **out);
-int ddog_ai_usage_batch_add_quiet(const ddog_ai_usage_Batch *batch, const char *input, uintptr_t input_len,
-                                  ddog_ai_usage_Buffer *out);
+int ddog_ai_usage_batch_add_request(const ddog_ai_usage_Batch *batch, const char *input, uintptr_t input_len,
+                                    ddog_ai_usage_Buffer *out);
 int ddog_ai_usage_batch_set_metrics(const ddog_ai_usage_Batch *batch, const char *input, uintptr_t input_len,
                                     ddog_ai_usage_Buffer *out);
 bool ddog_ai_usage_batch_is_empty(const ddog_ai_usage_Batch *batch);
@@ -65,37 +67,49 @@ _M.UDP_MAX_PAYLOAD = 1432
 
 local LIBRARY_NAME = "libdd_ai_usage_ffi"
 
+local ARCH_SUFFIX = { x64 = "x86_64", arm64 = "aarch64" }
+
 local function load_library()
-    local candidates = {}
     local configured = os.getenv("DD_AI_USAGE_FFI_LIBRARY")
     if configured and configured ~= "" then
-        candidates[1] = configured
-    else
-        local path = package.searchpath(LIBRARY_NAME, package.cpath)
-        if path then
-            candidates[1] = path
+        local ok, lib = pcall(ffi.load, configured)
+        if ok then
+            return lib
         end
-        -- The loader's own search: "dd_ai_usage_ffi" is tried as
-        -- libdd_ai_usage_ffi.so.
-        candidates[#candidates + 1] = "dd_ai_usage_ffi"
+        error(
+            "ddtrace: cannot load libdd-ai-usage-ffi from DD_AI_USAGE_FFI_LIBRARY="
+                .. configured
+                .. ": "
+                .. tostring(lib)
+        )
     end
-    local last_err
+    local candidates = {}
+    local suffix = ARCH_SUFFIX[ffi.arch]
+    for _, name in ipairs({ suffix and (LIBRARY_NAME .. "-" .. suffix) or LIBRARY_NAME, LIBRARY_NAME }) do
+        local path = package.searchpath(name, package.cpath)
+        if path then
+            candidates[#candidates + 1] = path
+        end
+    end
+    -- The loader's own search: "dd_ai_usage_ffi" is tried as
+    -- libdd_ai_usage_ffi.so.
+    candidates[#candidates + 1] = "dd_ai_usage_ffi"
+    local errors = {}
     for _, candidate in ipairs(candidates) do
         local ok, lib = pcall(ffi.load, candidate)
         if ok then
             return lib
         end
-        last_err = lib
+        errors[#errors + 1] = tostring(lib)
     end
-    return nil, last_err
+    error(
+        "ddtrace: cannot load libdatadog's libdd-ai-usage-ffi, which the plugin requires"
+            .. " (its rock ships it; see doc/configuration.md): "
+            .. concat(errors, "; ")
+    )
 end
 
-local lib, load_err = load_library()
-_M.load_error = load_err
-
-function _M.available()
-    return lib ~= nil
-end
+local lib = load_library()
 
 -- One buffer per worker: every call copies it out and releases it before
 -- returning, with no yield in between.
@@ -142,8 +156,8 @@ local function encode_value(value, out)
         if value ~= value or value == huge or value == -huge then
             return nil, "a number is not finite"
         end
-        out[#out + 1] = value == math.floor(value) and value < 2 ^ 53 and value > -2 ^ 53
-            and sfmt("%d", value) or sfmt("%.17g", value)
+        out[#out + 1] = value == math.floor(value) and value < 2 ^ 53 and value > -2 ^ 53 and sfmt("%d", value)
+            or sfmt("%.17g", value)
     elseif kind == "boolean" then
         out[#out + 1] = value and "true" or "false"
     elseif kind == "table" then
@@ -190,15 +204,6 @@ local function encode(document)
     return concat(out)
 end
 
--- {"series": [...], "issues": [...]} for one request document.
-function _M.project(document)
-    local input, err = encode(document)
-    if not input then
-        return nil, err
-    end
-    return json_result(lib.ddog_ai_usage_project(input, #input, buffer))
-end
-
 -- Batch
 
 local batch_methods = {}
@@ -225,19 +230,20 @@ function batch_methods:set_metrics(names)
     return json_result(lib.ddog_ai_usage_batch_set_metrics(self.handle, input, #input, buffer))
 end
 
--- Add a request document; true, or nil and the reason it was rejected. A
--- document a full batch has no room for is dropped whole and counted by
--- dropped(), and still returns true.
-function batch_methods:add(document)
-    local input, err = encode(document)
+-- Add the documents of one request (its provider attempt, token breakdown
+-- and gateway request) together: true, or nil and the reason one was
+-- rejected. A full batch drops the request whole, each document counted by
+-- dropped(), and it still returns true. No output is built on success.
+function batch_methods:add_request(documents)
+    local input, err = encode(documents)
     if not input then
         return nil, err
     end
-    local status = lib.ddog_ai_usage_batch_add_quiet(self.handle, input, #input, buffer)
-    if status == OK then
+    if lib.ddog_ai_usage_batch_add_request(self.handle, input, #input, nil) == OK then
         return true
     end
-    return json_result(status)
+    -- Rejected, which adds nothing: ask again for the reason.
+    return json_result(lib.ddog_ai_usage_batch_add_request(self.handle, input, #input, buffer))
 end
 
 function batch_methods:is_empty()
@@ -266,7 +272,13 @@ function batch_methods:take_dogstatsd(constant_tags, max_payload)
     constant_tags = constant_tags or ""
     dropped_lines[0] = 0
     local status = lib.ddog_ai_usage_batch_take_dogstatsd_text(
-        self.handle, constant_tags, #constant_tags, max_payload or _M.UDP_MAX_PAYLOAD, dropped_lines, buffer)
+        self.handle,
+        constant_tags,
+        #constant_tags,
+        max_payload or _M.UDP_MAX_PAYLOAD,
+        dropped_lines,
+        buffer
+    )
     if status ~= OK then
         return json_result(status)
     end
@@ -290,8 +302,9 @@ end
 -- for a whole response body.
 function _M.parse_provider_response(format, embeddings, body)
     format = format or ""
-    return json_result(lib.ddog_ai_usage_parse_provider_response(
-        format, #format, embeddings == true, body, #body, buffer))
+    return json_result(
+        lib.ddog_ai_usage_parse_provider_response(format, #format, embeddings == true, body, #body, buffer)
+    )
 end
 
 local stream_methods = {}

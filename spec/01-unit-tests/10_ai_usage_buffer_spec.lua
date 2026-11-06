@@ -2,7 +2,7 @@
 -- early at the high-water mark, and the documents its bound has no room for
 -- are counted and warned about.
 --
--- Needs libdd-ai-usage-ffi: DD_AI_USAGE_FFI_LIBRARY, lua_package_cpath, or the
+-- Needs libdd-ai-usage-ffi (required): DD_AI_USAGE_FFI_LIBRARY, lua_package_cpath, or the
 -- loader's search path.
 
 local real_ngx = ngx
@@ -245,11 +245,11 @@ describe("ai usage buffer", function()
         assert.equal(0, ai_usage.drops.total)
         assert.equal(0, #warnings)
         log_request()
-        -- Each document is dropped whole when its new points do not fit: the
-        -- provider attempt's duration sample does not, while a document whose
-        -- counters add to series already held takes no room.
+        -- A request is dropped whole when its new points do not fit, so a
+        -- batch never keeps an attempt without its breakdown: each of its
+        -- three documents is counted.
         local per_request = ai_usage.drops.total
-        assert.is_true(per_request >= 1 and per_request <= 3, tostring(per_request))
+        assert.equal(3, per_request)
         for _ = 1, 2 do
             log_request()
         end

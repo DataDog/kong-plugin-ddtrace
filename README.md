@@ -37,6 +37,10 @@ into the performance and behavior of your APIs.
 luarocks install kong-plugin-ddtrace
 ```
 
+The rock includes libdatadog's `libdd-ai-usage-ffi` shared library for x86_64 and aarch64 Linux, which
+the plugin requires. Installing from source, build it with `scripts/build-libdd-ai-usage.sh` (see
+[AI usage metrics](doc/configuration.md)).
+
 ### Usage
 
 Kong Admin API:

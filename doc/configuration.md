@@ -102,11 +102,15 @@ AI Proxy plugin (`ai-proxy`) sends to a model provider. The metrics follow the
 [OpenTelemetry GenAI metrics semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-token-metrics.md)
 and are the same series that Datadog's LiteLLM integration sends, so dashboards and monitors work across
 both gateways. They are sent to the Datadog Agent over DogStatsD (`agent_host`, `dogstatsd_port`).
-Kong Gateway `v3.9` or newer is required, with libdatadog's `libdd-ai-usage-ffi` shared library
-installed: it reads the providers' usage and encodes the series, as every Datadog gateway integration does.
-The plugin loads it from `DD_AI_USAGE_FFI_LIBRARY` (a path) when set, else from `lua_package_cpath`
-(`libdd_ai_usage_ffi.so`), else through the system's library search path. Without it, the plugin logs one
-error per worker and sends no AI usage metrics; tracing is unaffected.
+Kong Gateway `v3.9` or newer is required. Reading the providers' usage and encoding the series is
+libdatadog's shared library `libdd-ai-usage-ffi`, which every Datadog gateway integration uses, so they
+all send the same series for the same response. The plugin requires it: the rock installs it for x86_64
+and aarch64 Linux (glibc 2.17 or newer) on `lua_package_cpath` as `libdd_ai_usage_ffi-<arch>.so`, and the
+plugin does not load without it, naming the paths it tried. To use another build, set
+`DD_AI_USAGE_FFI_LIBRARY` to its path (and declare it with `KONG_NGINX_MAIN_ENV` or an `env` directive so
+that Kong's workers see it), or install `libdd_ai_usage_ffi.so` on the system's library search path. When
+installing from source, build it with `scripts/build-libdd-ai-usage.sh`, which needs `git` and `cargo`
+and builds the libdatadog version in `.libdatadog-version`.
 
 Per request to a model provider:
 

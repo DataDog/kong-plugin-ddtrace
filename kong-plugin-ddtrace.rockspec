@@ -34,4 +34,13 @@ build = {
         ["kong.plugins.ddtrace.utils"] = "kong/plugins/ddtrace/utils.lua",
         ["kong.plugins.ddtrace.w3c_propagation"] = "kong/plugins/ddtrace/w3c_propagation.lua",
     },
+    -- libdatadog's libdd-ai-usage-ffi, which the plugin requires, for both
+    -- architectures: built by scripts/build-libdd-ai-usage.sh, installed on
+    -- lua_package_cpath, and picked by ffi.arch at load.
+    install = {
+        lib = {
+            ["libdd_ai_usage_ffi-x86_64"] = "lib/libdd_ai_usage_ffi-x86_64.so",
+            ["libdd_ai_usage_ffi-aarch64"] = "lib/libdd_ai_usage_ffi-aarch64.so",
+        },
+    },
 }

@@ -3,7 +3,7 @@
 -- projection, the series and the provider parsing are libdatadog's, tested
 -- there against the shared conformance vectors.
 --
--- Needs the library: DD_AI_USAGE_FFI_LIBRARY, lua_package_cpath, or the
+-- Needs the library (required): DD_AI_USAGE_FFI_LIBRARY, lua_package_cpath, or the
 -- loader's search path.
 
 local real_ngx = ngx
@@ -40,26 +40,52 @@ local function new_request(opts)
     fake_ngx.var = { upstream_status = tostring(opts.status or 200), upstream_uri = opts.path or "/" }
     fake_ngx.arg = {}
     fake_kong.log = {
-        err = function(...) error(table.concat({ ... })) end,
+        err = function(...)
+            error(table.concat({ ... }))
+        end,
         warn = function() end,
         debug = function() end,
     }
     fake_kong.ctx = { plugin = {} }
     fake_kong.service = {
         response = {
-            get_status = function() return opts.status or 200 end,
-            get_header = function(name) return headers[name:lower()] end,
-            get_headers = function() return headers end,
-            get_raw_body = function() return opts.body end,
+            get_status = function()
+                return opts.status or 200
+            end,
+            get_header = function(name)
+                return headers[name:lower()]
+            end,
+            get_headers = function()
+                return headers
+            end,
+            get_raw_body = function()
+                return opts.body
+            end,
         },
     }
-    fake_kong.response = { get_source = function() return opts.source or "service" end }
-    fake_kong.request = { get_path = function() return opts.path or "/" end }
-    fake_kong.router = {
-        get_route = function() return { name = "chat-route" } end,
-        get_service = function() return { name = "openai-service" } end,
+    fake_kong.response = {
+        get_source = function()
+            return opts.source or "service"
+        end,
     }
-    fake_kong.client = { get_consumer = function() return opts.consumer end }
+    fake_kong.request = {
+        get_path = function()
+            return opts.path or "/"
+        end,
+    }
+    fake_kong.router = {
+        get_route = function()
+            return { name = "chat-route" }
+        end,
+        get_service = function()
+            return { name = "openai-service" }
+        end,
+    }
+    fake_kong.client = {
+        get_consumer = function()
+            return opts.consumer
+        end,
+    }
 end
 
 local function conf(tags)
@@ -94,8 +120,22 @@ local OPENAI_BODY = '{"model":"gpt-4o-mini-2024-07-18","service_tier":"default",
     .. '"usage":{"prompt_tokens":12,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":4}}}'
 
 describe("ai usage glue", function()
-    it("loads libdd-ai-usage-ffi", function()
-        assert.is_true(usage_ffi.available(), tostring(usage_ffi.load_error))
+    it("refuses to load without libdd-ai-usage-ffi", function()
+        local getenv = os.getenv
+        local loaded = package.loaded["kong.plugins.ddtrace.ai_usage_ffi"]
+        package.loaded["kong.plugins.ddtrace.ai_usage_ffi"] = nil
+        os.getenv = function(name) -- luacheck: ignore 122
+            if name == "DD_AI_USAGE_FFI_LIBRARY" then
+                return "/nonexistent/libdd_ai_usage_ffi.so"
+            end
+            return getenv(name)
+        end
+        local ok, err = pcall(require, "kong.plugins.ddtrace.ai_usage_ffi")
+        os.getenv = getenv -- luacheck: ignore 122
+        package.loaded["kong.plugins.ddtrace.ai_usage_ffi"] = loaded
+        assert.is_false(ok)
+        assert.truthy(tostring(err):find("cannot load libdd-ai-usage-ffi", 1, true), tostring(err))
+        assert.equal(usage_ffi, require("kong.plugins.ddtrace.ai_usage_ffi"))
     end)
 
     it("reads a buffered response's usage, model and tier", function()
@@ -174,7 +214,8 @@ describe("ai usage glue", function()
 
     it("sets key_alias from the consumer and user.id only for an email", function()
         local tags = conf({ "key_alias", "user" })
-        local lines = run({ body = OPENAI_BODY, consumer = { username = "billing-svc", custom_id = "Ada@Example.com" } }, tags)
+        local lines =
+            run({ body = OPENAI_BODY, consumer = { username = "billing-svc", custom_id = "Ada@Example.com" } }, tags)
         local input = find(lines, "input_tokens:12")[1]
         assert.truthy(input:find("trajectory.gateway.key.alias:billing-svc", 1, true), input)
         assert.truthy(input:find("user.id:ada_example.com", 1, true), input)
@@ -227,7 +268,9 @@ describe("ai usage glue", function()
         fake_ngx.socket = {
             udp = function()
                 return {
-                    setpeername = function() return true end,
+                    setpeername = function()
+                        return true
+                    end,
                     send = function(_, datagram)
                         sent[#sent + 1] = datagram
                         return true
