@@ -1,11 +1,14 @@
 -- A thin LuaJIT FFI binding to libdatadog's libdd-ai-usage-ffi, which holds
 -- the rules every gateway shares: reading a provider's usage from its
 -- response or stream, the metric profiles, the Datadog series and their
--- DogStatsD datagrams, provider names, error types and provider ids.
+-- DogStatsD datagrams, operations, error types, estimated costs, provider
+-- names and provider ids.
 --
 -- Values cross the boundary as JSON, except the datagrams a batch writes,
--- which are NUL-separated text. Every buffer the library writes is copied
--- into a Lua string and released before the call returns.
+-- which are NUL-separated text. Documents carry no fractional numbers
+-- (durations are whole nanoseconds and costs whole nano-USD), so cjson
+-- encodes them exactly. Every buffer the library writes is copied into a
+-- Lua string and released before the call returns.
 --
 -- The library is required: loading this module fails, and with it the
 -- plugin, when it cannot be found. It is loaded from DD_AI_USAGE_FFI_LIBRARY
@@ -14,15 +17,16 @@
 -- the dynamic loader's own search for libdd_ai_usage_ffi.so.
 
 local ffi = require("ffi")
-local cjson = require("cjson.safe")
+-- An instance of its own, so that its precision is not Kong's: whole numbers
+-- up to 2^53 are written in full.
+local cjson = require("cjson.safe").new()
+cjson.encode_number_precision(16)
 
 local ffi_string = ffi.string
 local type = type
-local pairs = pairs
-local sfmt = string.format
+local tonumber = tonumber
 local concat = table.concat
 local str_find = string.find
-local huge = math.huge
 
 local _M = {}
 
@@ -39,20 +43,29 @@ int ddog_ai_usage_batch_set_metrics(const ddog_ai_usage_Batch *batch, const char
 bool ddog_ai_usage_batch_is_empty(const ddog_ai_usage_Batch *batch);
 uintptr_t ddog_ai_usage_batch_len(const ddog_ai_usage_Batch *batch);
 void ddog_ai_usage_batch_set_max_len(const ddog_ai_usage_Batch *batch, uintptr_t max_len);
-uint64_t ddog_ai_usage_batch_dropped(const ddog_ai_usage_Batch *batch);
+void ddog_ai_usage_batch_set_high_water(const ddog_ai_usage_Batch *batch, uintptr_t high_water);
+bool ddog_ai_usage_batch_is_full(const ddog_ai_usage_Batch *batch);
+uint64_t ddog_ai_usage_batch_take_dropped(const ddog_ai_usage_Batch *batch);
 int ddog_ai_usage_batch_take_dogstatsd_text(const ddog_ai_usage_Batch *batch, const char *constant_tags,
                                             uintptr_t constant_tags_len, uintptr_t max_payload,
                                             uintptr_t *dropped_lines, ddog_ai_usage_Buffer *out);
 void ddog_ai_usage_batch_drop(ddog_ai_usage_Batch *batch);
-int ddog_ai_usage_parse_provider_response(const char *format, uintptr_t format_len, bool embeddings,
-                                          const char *body, uintptr_t body_len, ddog_ai_usage_Buffer *out);
-int ddog_ai_usage_stream_new(const char *format, uintptr_t format_len, bool embeddings,
-                             ddog_ai_usage_Stream **out);
+int ddog_ai_usage_parse_provider_response_with(const char *format, uintptr_t format_len, bool embeddings,
+                                               uint32_t options, const char *body, uintptr_t body_len,
+                                               ddog_ai_usage_Buffer *out);
+int ddog_ai_usage_stream_new_with(const char *format, uintptr_t format_len, bool embeddings, uint32_t options,
+                                  ddog_ai_usage_Stream **out);
 int ddog_ai_usage_stream_feed(ddog_ai_usage_Stream *stream, const char *chunk, uintptr_t chunk_len);
 int ddog_ai_usage_stream_take(ddog_ai_usage_Stream *stream, ddog_ai_usage_Buffer *out);
 void ddog_ai_usage_stream_drop(ddog_ai_usage_Stream *stream);
 int ddog_ai_usage_provider_name(const char *name, uintptr_t name_len, ddog_ai_usage_Buffer *out);
-int ddog_ai_usage_error_type(const char *name, uintptr_t name_len, uint16_t status, ddog_ai_usage_Buffer *out);
+int ddog_ai_usage_operation_name(const char *route, uintptr_t route_len, ddog_ai_usage_Buffer *out);
+int ddog_ai_usage_error_type_for_failure(uint16_t status, bool no_response, bool timed_out, const char *name,
+                                         uintptr_t name_len, ddog_ai_usage_Buffer *out);
+bool ddog_ai_usage_estimated_cost(double input_per_million, double output_per_million,
+                                  double cache_read_per_million, double cache_write_per_million,
+                                  uint64_t input_tokens, uint64_t cache_read_tokens, uint64_t cache_write_tokens,
+                                  uint64_t output_tokens, uint64_t *cost_nano_usd);
 int ddog_ai_usage_provider_id_headers(const char *provider_name, uintptr_t provider_name_len,
                                       ddog_ai_usage_Buffer *out);
 int ddog_ai_usage_provider_ids(const char *input, uintptr_t input_len, ddog_ai_usage_Buffer *out);
@@ -145,63 +158,12 @@ local function text_result(status)
     return nil
 end
 
--- JSON for a request document. Costs and durations cross as 17 significant
--- digits, which read back as the same double (cjson stops at 16). A table
--- with a [1] is an array, any other an object.
-local function encode_value(value, out)
-    local kind = type(value)
-    if kind == "string" then
-        out[#out + 1] = cjson.encode(value)
-    elseif kind == "number" then
-        if value ~= value or value == huge or value == -huge then
-            return nil, "a number is not finite"
-        end
-        out[#out + 1] = value == math.floor(value) and value < 2 ^ 53 and value > -2 ^ 53 and sfmt("%d", value)
-            or sfmt("%.17g", value)
-    elseif kind == "boolean" then
-        out[#out + 1] = value and "true" or "false"
-    elseif kind == "table" then
-        if value[1] ~= nil then
-            out[#out + 1] = "["
-            for i = 1, #value do
-                if i > 1 then
-                    out[#out + 1] = ","
-                end
-                local ok, err = encode_value(value[i], out)
-                if not ok then
-                    return nil, err
-                end
-            end
-            out[#out + 1] = "]"
-        else
-            out[#out + 1] = "{"
-            local first = true
-            for k, v in pairs(value) do
-                if type(k) ~= "string" then
-                    return nil, "a key is not a string"
-                end
-                out[#out + 1] = first and cjson.encode(k) .. ":" or "," .. cjson.encode(k) .. ":"
-                first = false
-                local ok, err = encode_value(v, out)
-                if not ok then
-                    return nil, err
-                end
-            end
-            out[#out + 1] = "}"
-        end
-    else
-        out[#out + 1] = "null"
-    end
-    return true
-end
-
 local function encode(document)
-    local out = {}
-    local ok, err = encode_value(document, out)
-    if not ok then
-        return nil, "cannot encode: " .. err
+    local input, err = cjson.encode(document)
+    if not input then
+        return nil, "cannot encode: " .. tostring(err)
     end
-    return concat(out)
+    return input
 end
 
 -- Batch
@@ -233,7 +195,7 @@ end
 -- Add the documents of one request (its provider attempt, token breakdown
 -- and gateway request) together: true, or nil and the reason one was
 -- rejected. A full batch drops the request whole, each document counted by
--- dropped(), and it still returns true. No output is built on success.
+-- take_dropped(), and it still returns true. No output is built on success.
 function batch_methods:add_request(documents)
     local input, err = encode(documents)
     if not input then
@@ -256,14 +218,21 @@ function batch_methods:len()
     return tonumber(lib.ddog_ai_usage_batch_len(self.handle))
 end
 
--- Bound the batch to max_len points (0 lifts the bound).
-function batch_methods:set_max_len(max_len)
+-- Bound the batch to max_len points (0 lifts the bound), and ask for it to
+-- be sent early from high_water points (0 never).
+function batch_methods:set_limits(max_len, high_water)
     lib.ddog_ai_usage_batch_set_max_len(self.handle, max_len)
+    lib.ddog_ai_usage_batch_set_high_water(self.handle, high_water)
 end
 
--- The documents dropped for a full batch since it was created.
-function batch_methods:dropped()
-    return tonumber(lib.ddog_ai_usage_batch_dropped(self.handle))
+-- Whether the batch reached its high-water mark.
+function batch_methods:is_full()
+    return lib.ddog_ai_usage_batch_is_full(self.handle)
+end
+
+-- The documents dropped for a full batch since the last call.
+function batch_methods:take_dropped()
+    return tonumber(lib.ddog_ai_usage_batch_take_dropped(self.handle))
 end
 
 -- Take every point as DogStatsD datagrams, each at most max_payload bytes,
@@ -298,12 +267,24 @@ end
 
 -- Provider responses
 
+-- Usage is read with inclusive totals (cache in the input, reasoning in the
+-- output), the counts a cost is computed from.
+local INCLUSIVE_TOTALS = 1
+
 -- {usage, response_model, service_tier, outcome, error_name, error_type}
 -- for a whole response body.
 function _M.parse_provider_response(format, embeddings, body)
     format = format or ""
     return json_result(
-        lib.ddog_ai_usage_parse_provider_response(format, #format, embeddings == true, body, #body, buffer)
+        lib.ddog_ai_usage_parse_provider_response_with(
+            format,
+            #format,
+            embeddings == true,
+            INCLUSIVE_TOTALS,
+            body,
+            #body,
+            buffer
+        )
     )
 end
 
@@ -313,7 +294,7 @@ local stream_mt = { __index = stream_methods }
 function _M.new_stream(format, embeddings)
     format = format or ""
     local out = ffi.new("ddog_ai_usage_Stream*[1]")
-    if lib.ddog_ai_usage_stream_new(format, #format, embeddings == true, out) ~= OK then
+    if lib.ddog_ai_usage_stream_new_with(format, #format, embeddings == true, INCLUSIVE_TOTALS, out) ~= OK then
         return nil, "cannot read a stream in format " .. format
     end
     return setmetatable({ handle = ffi.gc(out[0], lib.ddog_ai_usage_stream_drop) }, stream_mt)
@@ -346,11 +327,50 @@ function _M.provider_name(name)
     return text_result(lib.ddog_ai_usage_provider_name(name, #name, buffer))
 end
 
--- The error.type of a failure from its error name and HTTP status (0 for
--- none), or nil when neither says it failed.
-function _M.error_type(name, status)
+-- The gen_ai.operation.name of a Kong route type or an upstream path, or
+-- nil for one the profiles do not measure.
+function _M.operation_name(route)
+    if type(route) ~= "string" then
+        return nil
+    end
+    return text_result(lib.ddog_ai_usage_operation_name(route, #route, buffer))
+end
+
+-- The error.type of a call from its HTTP status (nil for none), whether it
+-- got no response or timed out, and its error name; nil when it did not
+-- fail.
+function _M.error_type_for_failure(status, no_response, timed_out, name)
     name = name or ""
-    return text_result(lib.ddog_ai_usage_error_type(name, #name, status or 0, buffer))
+    return text_result(
+        lib.ddog_ai_usage_error_type_for_failure(
+            status or 0,
+            no_response == true,
+            timed_out == true,
+            name,
+            #name,
+            buffer
+        )
+    )
+end
+
+local cost_nano_usd = ffi.new("uint64_t[1]")
+
+-- The cost in whole nano-USD of input and output token totals at
+-- per-million prices, or nil. Kong has no cache price, so cached input is
+-- priced as input.
+function _M.estimated_cost(input_per_million, output_per_million, input_tokens, output_tokens)
+    local ok = lib.ddog_ai_usage_estimated_cost(
+        input_per_million,
+        output_per_million,
+        -1,
+        -1,
+        input_tokens,
+        0,
+        0,
+        output_tokens or 0,
+        cost_nano_usd
+    )
+    return ok and tonumber(cost_nano_usd[0]) or nil
 end
 
 -- The lower-case response headers provider_ids reads for a provider, as a
@@ -369,7 +389,11 @@ end
 
 -- {attribute: value} from a provider's response headers and model ARNs.
 function _M.provider_ids(provider_name, headers, models)
-    local input, err = encode({ provider_name = provider_name, headers = headers or {}, models = models or {} })
+    local input, err = encode({
+        provider_name = provider_name,
+        headers = headers or {},
+        models = models and models[1] ~= nil and models or cjson.empty_array,
+    })
     if not input then
         return nil, err
     end

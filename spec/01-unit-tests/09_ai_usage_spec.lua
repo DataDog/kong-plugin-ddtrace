@@ -188,27 +188,18 @@ describe("ai usage glue", function()
         assert.truthy(input[1]:find("trajectory.token.source:estimated", 1, true))
     end)
 
+    -- The status vocabulary is libdatadog's, tested there: this checks what
+    -- Kong hands it.
     it("labels failures with the shared error.type", function()
-        local cases = {
-            { 400, "bad_request_error" },
-            { 408, "timeout_error" },
-            { 413, "api_error" },
-            { 422, "unprocessable_entity_error" },
-            { 429, "rate_limit_error" },
-            { 502, "internal_server_error" },
-            { 503, "internal_server_error" },
-            { 504, "timeout_error" },
-        }
-        for _, case in ipairs(cases) do
-            local lines = run({ status = case[1], body = '{"error":{}}' })
-            local durations = find(lines, "^gen_ai%.client%.inference%.duration:")
-            assert.equal(1, #durations, tostring(case[1]))
-            assert.truthy(durations[1]:find("error.type:" .. case[2], 1, true), durations[1])
-            -- A request that failed for good was charged nothing.
-            assert.equal(1, #find(lines, "^trajectory%.gen_ai%.gateway%.request%.estimated_cost:0|c|"))
-        end
-        local lines = run({ status = 502, source = "error" })
+        local lines = run({ status = 429, body = '{"error":{}}' })
         local durations = find(lines, "^gen_ai%.client%.inference%.duration:")
+        assert.equal(1, #durations)
+        assert.truthy(durations[1]:find("error.type:rate_limit_error", 1, true), durations[1])
+        -- A request that failed for good was charged nothing.
+        assert.equal(1, #find(lines, "^trajectory%.gen_ai%.gateway%.request%.estimated_cost:0|c|"))
+        -- A response Kong made itself: the provider never answered.
+        lines = run({ status = 502, source = "error" })
+        durations = find(lines, "^gen_ai%.client%.inference%.duration:")
         assert.truthy(durations[1]:find("error.type:api_connection_error", 1, true), durations[1])
     end)
 

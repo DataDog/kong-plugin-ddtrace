@@ -49,13 +49,6 @@ local DEFAULT_METRICS = {
 }
 _M.DEFAULT_METRICS = DEFAULT_METRICS
 
-local ROUTE_OPERATIONS = {
-    ["llm/v1/chat"] = "chat",
-    ["llm/v1/completions"] = "text_completion",
-    ["llm/v1/embeddings"] = "embeddings",
-    ["llm/v1/responses"] = "chat",
-}
-
 -- Providers whose streamed and buffered counts Kong reads from the
 -- provider's response rather than estimating them.
 local KONG_COUNTS_REPORTED = {
@@ -136,38 +129,21 @@ local function provider_name(model)
     return usage_ffi.provider_name(provider)
 end
 
--- The operation of a passthrough (preserve) route, from the upstream path.
-local function preserve_operation()
-    local path = ngx.var.upstream_uri or kong.request.get_path() or ""
-    path = path:gsub("%?.*$", "")
-    if path:find("/embeddings$") then
-        return "embeddings"
-    elseif path:find("/chat/completions$") or path:find("/messages$") or path:find("/responses$") then
-        return "chat"
-    elseif path:find("/completions$") then
-        return "text_completion"
-    end
-    return nil
-end
-
+-- The operation of a route type, or of a passthrough (preserve) route's
+-- upstream path.
 local function operation_name(route_type)
     if route_type == "preserve" then
-        return preserve_operation()
+        return usage_ffi.operation_name(ngx.var.upstream_uri or kong.request.get_path() or "")
     end
-    return ROUTE_OPERATIONS[route_type]
+    return usage_ffi.operation_name(route_type)
 end
 
+-- The error.type of a request that did not end in a 200. Kong got no
+-- response from the provider when it has no status or made the response
+-- itself.
 local function error_type(status, source)
-    if status == nil or source == "error" then
-        -- Kong could not get a response from the provider.
-        local upstream = tonumber(ngx.var.upstream_status)
-        if upstream == 504 or status == 504 then
-            return usage_ffi.error_type("", 504)
-        end
-        return usage_ffi.error_type("APIConnectionError", 0)
-    end
-    -- A status that is not a failure but not 200 either is api_error.
-    return usage_ffi.error_type("", status) or usage_ffi.error_type("provider_error", 0)
+    local no_response = status == nil or source == "error"
+    return usage_ffi.error_type_for_failure(status or tonumber(ngx.var.upstream_status), no_response, false)
 end
 
 -- Usage from a provider response
@@ -251,13 +227,12 @@ _M.limits = limits
 function _M.set_limits(max_points, high_water)
     limits.max_points = max_points
     limits.high_water = high_water or math.floor(max_points * HIGH_WATER_FRACTION)
-    batch:set_max_len(max_points)
+    batch:set_limits(max_points, limits.high_water)
 end
 _M.set_limits(MAX_BATCH_POINTS)
 
--- Documents dropped since the last warning; seen is the batch's own count
--- when it was last read.
-local drops = { pending = 0, total = 0, warned_at = nil, seen = 0 }
+-- Documents dropped since the last warning.
+local drops = { pending = 0, total = 0, warned_at = nil }
 _M.drops = drops
 
 -- An email address, the one form of consumer name that is known to be a
@@ -308,12 +283,9 @@ end
 -- Warn about the documents dropped since the last warning, at most once per
 -- DROP_WARN_INTERVAL.
 local function warn_drops(now)
-    local dropped = batch:dropped()
-    if dropped > drops.seen then
-        drops.pending = drops.pending + dropped - drops.seen
-        drops.total = drops.total + dropped - drops.seen
-        drops.seen = dropped
-    end
+    local dropped = batch:take_dropped()
+    drops.pending = drops.pending + dropped
+    drops.total = drops.total + dropped
     if drops.pending == 0 or (drops.warned_at and now - drops.warned_at < DROP_WARN_INTERVAL) then
         return
     end
@@ -366,7 +338,7 @@ end
 -- Send the batch now, off the request path, once it reaches the high-water
 -- mark. When no timer can be created, the next request tries again.
 local function flush_if_full()
-    if writer.early_pending or not writer.started or batch:len() < limits.high_water then
+    if writer.early_pending or not writer.started or not batch:is_full() then
         return
     end
     local ok, err = ngx.timer.at(0, on_early_timer)
@@ -533,32 +505,13 @@ local function deployment_attributes(conf, target, tags, state)
     return attributes
 end
 
--- The cost of an attempt at the model's configured prices, in USD per
--- million tokens, applied as Kong applies them to the input and output
--- totals. The totals are the provider's when it reported them, so the cost
--- agrees with the token metrics: Kong's own figure for a stream is based on
--- its own estimate of the counts.
-local function attempt_cost(options, observation)
-    local input = observation.input_tokens
-    local output = observation.output_tokens
-    if input ~= nil and observation.input_basis == "excludes_cache" then
-        input = input + (observation.cache_read_input_tokens or 0) + (observation.cache_write_input_tokens or 0)
-    end
-    if input ~= nil and (output ~= nil or observation.operation_name == "embeddings") then
-        return (input * options.input_cost + (output or 0) * options.output_cost) / 1000000
-    end
-    return nil
-end
-
-local function seconds_since_ms(start_ms, end_s)
+-- Whole nanoseconds from a start in milliseconds to an end in seconds.
+local function ns_since_ms(start_ms, end_s)
     if type(start_ms) ~= "number" then
         return nil
     end
-    local seconds = end_s - start_ms / 1000
-    if seconds < 0 then
-        return 0
-    end
-    return seconds
+    local ns = math.floor((end_s * 1000 - start_ms) * 1000000 + 0.5)
+    return ns > 0 and ns or 0
 end
 
 -- log: build and record the observations of the request.
@@ -608,7 +561,7 @@ function _M.log(conf, target)
             operation_name = operation,
             provider_name = provider,
             request_model = request_model,
-            duration_seconds = seconds_since_ms(attempt_start, state.ended_at or now),
+            duration_ns = ns_since_ms(attempt_start, state.ended_at or now),
             streaming = state.stream == true,
             observation_point = "gateway",
             error_type = err,
@@ -640,9 +593,17 @@ function _M.log(conf, target)
                 observation.input_token_source = "estimated"
                 observation.output_token_source = "estimated"
             end
-            local cost = priced and attempt_cost(options, observation)
+            -- The cost at the model's configured prices, as Kong applies them
+            -- to the input and output totals: the provider's when it reported
+            -- them (read with inclusive totals), so the cost agrees with the
+            -- token metrics.
+            local input, output = observation.input_tokens, observation.output_tokens
+            local cost = priced
+                and input ~= nil
+                and (output ~= nil or embeddings)
+                and usage_ffi.estimated_cost(options.input_cost, options.output_cost, input, output)
             if cost then
-                observation.cost_usd = cost
+                observation.cost_nano_usd = cost
                 observation.cost_source = "estimated"
                 gateway_cost = cost
             end
@@ -667,17 +628,13 @@ function _M.log(conf, target)
     local gateway = {
         operation_name = operation,
         request_model = request_model,
-        duration_seconds = seconds_since_ms(ctx.KONG_PROCESSING_START, now) or 0,
+        duration_ns = ns_since_ms(ctx.KONG_PROCESSING_START, now) or 0,
         observation_point = "gateway",
         provider_operations = attempted and 1 or 0,
         provider_operation_coverage = "complete",
         error_type = err,
     }
-    if failed then
-        gateway.estimated_cost_usd = 0
-    else
-        gateway.estimated_cost_usd = gateway_cost
-    end
+    gateway.estimated_cost_nano_usd = failed and 0 or gateway_cost
     documents[#documents + 1] = {
         profile = PROFILES.gateway_request,
         observation = gateway,
@@ -691,9 +648,7 @@ function _M.log(conf, target)
         kong.log.debug("ddtrace: AI usage observations rejected: ", add_err)
     end
     -- The memory ceiling: reached only when sends cannot keep up.
-    if batch:dropped() > drops.seen then
-        warn_drops(now)
-    end
+    warn_drops(now)
 
     if target then
         ensure_writer(target)
