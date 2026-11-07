@@ -1,14 +1,14 @@
 -- A thin LuaJIT FFI binding to libdatadog's libdd-ai-usage-ffi, which holds
 -- the rules every gateway shares: reading a provider's usage from its
 -- response or stream, the metric profiles, the Datadog series and their
--- DogStatsD datagrams, operations, error types, estimated costs, provider
--- names and provider ids.
+-- DogStatsD datagrams, the operation of a passthrough path, error types,
+-- provider names and provider ids.
 --
 -- Values cross the boundary as JSON, except the datagrams a batch writes,
--- which are NUL-separated text. Documents carry no fractional numbers
--- (durations are whole nanoseconds and costs whole nano-USD), so cjson
--- encodes them exactly. Every buffer the library writes is copied into a
--- Lua string and released before the call returns.
+-- which are NUL-separated text. Costs are whole nano-USD; durations are
+-- seconds measured to the millisecond, which 16 significant digits keep.
+-- Every buffer the library writes is copied into a Lua string and released
+-- before the call returns.
 --
 -- The library is required: loading this module fails, and with it the
 -- plugin, when it cannot be found. It is loaded from DD_AI_USAGE_FFI_LIBRARY
@@ -43,9 +43,7 @@ int ddog_ai_usage_batch_set_metrics(const ddog_ai_usage_Batch *batch, const char
 bool ddog_ai_usage_batch_is_empty(const ddog_ai_usage_Batch *batch);
 uintptr_t ddog_ai_usage_batch_len(const ddog_ai_usage_Batch *batch);
 void ddog_ai_usage_batch_set_max_len(const ddog_ai_usage_Batch *batch, uintptr_t max_len);
-void ddog_ai_usage_batch_set_high_water(const ddog_ai_usage_Batch *batch, uintptr_t high_water);
-bool ddog_ai_usage_batch_is_full(const ddog_ai_usage_Batch *batch);
-uint64_t ddog_ai_usage_batch_take_dropped(const ddog_ai_usage_Batch *batch);
+uint64_t ddog_ai_usage_batch_dropped(const ddog_ai_usage_Batch *batch);
 int ddog_ai_usage_batch_take_dogstatsd_text(const ddog_ai_usage_Batch *batch, const char *constant_tags,
                                             uintptr_t constant_tags_len, uintptr_t max_payload,
                                             uintptr_t *dropped_lines, ddog_ai_usage_Buffer *out);
@@ -60,12 +58,7 @@ int ddog_ai_usage_stream_take(ddog_ai_usage_Stream *stream, ddog_ai_usage_Buffer
 void ddog_ai_usage_stream_drop(ddog_ai_usage_Stream *stream);
 int ddog_ai_usage_provider_name(const char *name, uintptr_t name_len, ddog_ai_usage_Buffer *out);
 int ddog_ai_usage_operation_name(const char *route, uintptr_t route_len, ddog_ai_usage_Buffer *out);
-int ddog_ai_usage_error_type_for_failure(uint16_t status, bool no_response, bool timed_out, const char *name,
-                                         uintptr_t name_len, ddog_ai_usage_Buffer *out);
-bool ddog_ai_usage_estimated_cost(double input_per_million, double output_per_million,
-                                  double cache_read_per_million, double cache_write_per_million,
-                                  uint64_t input_tokens, uint64_t cache_read_tokens, uint64_t cache_write_tokens,
-                                  uint64_t output_tokens, uint64_t *cost_nano_usd);
+int ddog_ai_usage_error_type(const char *name, uintptr_t name_len, uint16_t status, ddog_ai_usage_Buffer *out);
 int ddog_ai_usage_provider_id_headers(const char *provider_name, uintptr_t provider_name_len,
                                       ddog_ai_usage_Buffer *out);
 int ddog_ai_usage_provider_ids(const char *input, uintptr_t input_len, ddog_ai_usage_Buffer *out);
@@ -222,17 +215,20 @@ end
 -- be sent early from high_water points (0 never).
 function batch_methods:set_limits(max_len, high_water)
     lib.ddog_ai_usage_batch_set_max_len(self.handle, max_len)
-    lib.ddog_ai_usage_batch_set_high_water(self.handle, high_water)
+    self.high_water = high_water
 end
 
 -- Whether the batch reached its high-water mark.
 function batch_methods:is_full()
-    return lib.ddog_ai_usage_batch_is_full(self.handle)
+    return (self.high_water or 0) > 0 and self:len() >= self.high_water
 end
 
 -- The documents dropped for a full batch since the last call.
 function batch_methods:take_dropped()
-    return tonumber(lib.ddog_ai_usage_batch_take_dropped(self.handle))
+    local dropped = tonumber(lib.ddog_ai_usage_batch_dropped(self.handle))
+    local since = dropped - (self.dropped_reported or 0)
+    self.dropped_reported = dropped
+    return since
 end
 
 -- Take every point as DogStatsD datagrams, each at most max_payload bytes,
@@ -340,37 +336,29 @@ end
 -- got no response or timed out, and its error name; nil when it did not
 -- fail.
 function _M.error_type_for_failure(status, no_response, timed_out, name)
+    if no_response then
+        return (timed_out or status == 504) and "timeout_error" or "api_connection_error"
+    end
+    if timed_out then
+        return "timeout_error"
+    end
+    if status == nil or status == 200 then
+        return nil
+    end
     name = name or ""
-    return text_result(
-        lib.ddog_ai_usage_error_type_for_failure(
-            status or 0,
-            no_response == true,
-            timed_out == true,
-            name,
-            #name,
-            buffer
-        )
-    )
+    -- A status other than 200 that is not a failure is api_error.
+    return text_result(lib.ddog_ai_usage_error_type(name, #name, status, buffer)) or "api_error"
 end
 
-local cost_nano_usd = ffi.new("uint64_t[1]")
-
 -- The cost in whole nano-USD of input and output token totals at
--- per-million prices, or nil. Kong has no cache price, so cached input is
--- priced as input.
+-- per-million prices (1000 nano-USD per token per USD), or nil. Kong has no
+-- cache price, so cached input is priced as input.
 function _M.estimated_cost(input_per_million, output_per_million, input_tokens, output_tokens)
-    local ok = lib.ddog_ai_usage_estimated_cost(
-        input_per_million,
-        output_per_million,
-        -1,
-        -1,
-        input_tokens,
-        0,
-        0,
-        output_tokens or 0,
-        cost_nano_usd
-    )
-    return ok and tonumber(cost_nano_usd[0]) or nil
+    if not (input_per_million >= 0 and output_per_million >= 0) then
+        return nil
+    end
+    local nanos = 1000 * (input_tokens * input_per_million + (output_tokens or 0) * output_per_million)
+    return nanos < 2 ^ 53 and math.floor(nanos + 0.5) or nil
 end
 
 -- The lower-case response headers provider_ids reads for a provider, as a

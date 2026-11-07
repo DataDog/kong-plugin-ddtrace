@@ -131,11 +131,18 @@ end
 
 -- The operation of a route type, or of a passthrough (preserve) route's
 -- upstream path.
+local ROUTE_OPERATIONS = {
+    ["llm/v1/chat"] = "chat",
+    ["llm/v1/responses"] = "chat",
+    ["llm/v1/completions"] = "text_completion",
+    ["llm/v1/embeddings"] = "embeddings",
+}
+
 local function operation_name(route_type)
     if route_type == "preserve" then
         return usage_ffi.operation_name(ngx.var.upstream_uri or kong.request.get_path() or "")
     end
-    return usage_ffi.operation_name(route_type)
+    return ROUTE_OPERATIONS[route_type]
 end
 
 -- The error.type of a request that did not end in a 200. Kong got no
@@ -505,13 +512,13 @@ local function deployment_attributes(conf, target, tags, state)
     return attributes
 end
 
--- Whole nanoseconds from a start in milliseconds to an end in seconds.
-local function ns_since_ms(start_ms, end_s)
+-- Seconds from a start in milliseconds to an end in seconds.
+local function seconds_since_ms(start_ms, end_s)
     if type(start_ms) ~= "number" then
         return nil
     end
-    local ns = math.floor((end_s * 1000 - start_ms) * 1000000 + 0.5)
-    return ns > 0 and ns or 0
+    local seconds = end_s - start_ms / 1000
+    return seconds > 0 and seconds or 0
 end
 
 -- log: build and record the observations of the request.
@@ -561,7 +568,7 @@ function _M.log(conf, target)
             operation_name = operation,
             provider_name = provider,
             request_model = request_model,
-            duration_ns = ns_since_ms(attempt_start, state.ended_at or now),
+            duration_seconds = seconds_since_ms(attempt_start, state.ended_at or now),
             streaming = state.stream == true,
             observation_point = "gateway",
             error_type = err,
@@ -628,7 +635,7 @@ function _M.log(conf, target)
     local gateway = {
         operation_name = operation,
         request_model = request_model,
-        duration_ns = ns_since_ms(ctx.KONG_PROCESSING_START, now) or 0,
+        duration_seconds = seconds_since_ms(ctx.KONG_PROCESSING_START, now) or 0,
         observation_point = "gateway",
         provider_operations = attempted and 1 or 0,
         provider_operation_coverage = "complete",
