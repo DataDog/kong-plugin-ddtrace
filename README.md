@@ -15,6 +15,9 @@ into the performance and behavior of your APIs.
 - **Configurable**: Supports a wide range of configuration options to tailor tracing to your
   specific needs.
 - **Compatibility**: Works with various Kong deployment environments, including Kubernetes.
+- **LLM Usage Metrics**: Sends token usage and cache metrics for requests proxied by Kong's AI Proxy
+  plugin, following the OpenTelemetry GenAI metrics conventions. See
+  [LLM Usage Metrics](doc/configuration.md#llm-usage-metrics).
 
 ## Getting Started
 
@@ -33,6 +36,10 @@ into the performance and behavior of your APIs.
 ```bash
 luarocks install kong-plugin-ddtrace
 ```
+
+The rock includes libdatadog's `libdd-ai-usage-ffi` shared library for x86_64 and aarch64 Linux, which
+the plugin requires. Installing from source, build it with `scripts/build-libdd-ai-usage.sh` (see
+[AI usage metrics](doc/configuration.md)).
 
 ### Usage
 

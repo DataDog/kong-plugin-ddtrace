@@ -132,6 +132,31 @@ return {
                         },
                     },
                     { startup_log = { type = "boolean", default = true } },
+                    -- LLM usage metrics for requests proxied by Kong's AI Proxy plugins.
+                    { ai_usage_metrics_enabled = { type = "boolean", default = false } },
+                    { dogstatsd_port = { type = "integer", default = 8125, between = { 1, 65535 } } },
+                    { ai_usage_metrics_flush_interval = { type = "number", default = 10, gt = 0 } },
+                    {
+                        ai_usage_metrics_tags = {
+                            type = "array",
+                            default = {},
+                            elements = {
+                                type = "string",
+                                one_of = {
+                                    "provider_account",
+                                    "project",
+                                    "route",
+                                    "destination",
+                                    "key_alias",
+                                    "user",
+                                    "service",
+                                },
+                            },
+                        },
+                    },
+                    { ai_usage_metrics_api_key_id = { type = "string" } },
+                    { ai_usage_metrics_provider_account_id = { type = "string" } },
+                    { ai_usage_metrics_project_id = { type = "string" } },
                     -- Deprecated:
                     { agent_endpoint = { type = "string", custom_validator = deprecated_agent_endpoint } },
                 },

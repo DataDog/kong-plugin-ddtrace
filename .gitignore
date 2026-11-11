@@ -14,3 +14,5 @@ luacov.report.out
 .DS_Store
 # exclude LuaCov html report
 luacov.report.html
+# libdd-ai-usage-ffi, built by scripts/build-libdd-ai-usage.sh
+lib/

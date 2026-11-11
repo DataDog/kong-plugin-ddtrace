@@ -2,6 +2,7 @@ local new_sampler = require("kong.plugins.ddtrace.sampler").new
 local new_trace_agent_writer = require("kong.plugins.ddtrace.agent_writer").new
 local new_propagator = require("kong.plugins.ddtrace.propagation").new
 local utils = require("kong.plugins.ddtrace.utils")
+local ai_usage = require("kong.plugins.ddtrace.ai_usage")
 local time_ns = utils.time_ns
 local cjson = require("cjson")
 
@@ -42,6 +43,7 @@ local DD_ENV = get_env("DD_ENV")
 local DD_VERSION = get_env("DD_VERSION")
 local DD_AGENT_URL = get_env("DD_TRACE_AGENT_URL")
 local DD_TRACE_STARTUP_LOGS = get_env("DD_TRACE_STARTUP_LOGS")
+local DD_DOGSTATSD_PORT = get_env("DD_DOGSTATSD_PORT")
 
 -- Memoize some data attached to traces
 local ngx_worker_pid = ngx.worker.pid()
@@ -279,6 +281,16 @@ local function access(conf)
     ctx.proxy_span = proxy_span
 end
 
+-- Where AI usage metrics are sent: the Agent's DogStatsD port.
+local function dogstatsd_target(conf)
+    return {
+        host = AGENT_HOST or conf.agent_host or "localhost",
+        port = tonumber(DD_DOGSTATSD_PORT) or conf.dogstatsd_port or 8125,
+        interval = conf.ai_usage_metrics_flush_interval or 10,
+        service = DD_SERVICE or conf.service_name or "kong",
+    }
+end
+
 local function header_filter(_)
     local now = time_ns() * 1LL
     local ngx_ctx = ngx.ctx
@@ -406,6 +418,24 @@ function DatadogTraceHandler:header_filter(conf)
     if not ok then
         kong.log.err("tracing error in DatadogTraceHandler:response: ", message)
     end
+
+    if conf.ai_usage_metrics_enabled then
+        ok, message = pcall(ai_usage.header_filter, conf)
+        if not ok then
+            kong.log.err("AI usage metrics error in DatadogTraceHandler:header_filter: ", message)
+        end
+    end
+end
+
+function DatadogTraceHandler:body_filter(conf)
+    if subsystem ~= "http" or not conf.ai_usage_metrics_enabled then
+        return
+    end
+
+    local ok, message = pcall(ai_usage.body_filter, conf)
+    if not ok then
+        kong.log.err("AI usage metrics error in DatadogTraceHandler:body_filter: ", message)
+    end
 end
 
 function DatadogTraceHandler:log(conf)
@@ -416,6 +446,13 @@ function DatadogTraceHandler:log(conf)
     local ok, message = pcall(log, conf)
     if not ok then
         kong.log.err("tracing error in DatadogTraceHandler:log: ", message)
+    end
+
+    if conf.ai_usage_metrics_enabled then
+        ok, message = pcall(ai_usage.log, conf, dogstatsd_target(conf))
+        if not ok then
+            kong.log.err("AI usage metrics error in DatadogTraceHandler:log: ", message)
+        end
     end
 end
 

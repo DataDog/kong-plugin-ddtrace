@@ -21,6 +21,8 @@ build = {
     type = "builtin",
     modules = {
         ["kong.plugins.ddtrace.agent_writer"] = "kong/plugins/ddtrace/agent_writer.lua",
+        ["kong.plugins.ddtrace.ai_usage"] = "kong/plugins/ddtrace/ai_usage.lua",
+        ["kong.plugins.ddtrace.ai_usage_ffi"] = "kong/plugins/ddtrace/ai_usage_ffi.lua",
         ["kong.plugins.ddtrace.datadog_propagation"] = "kong/plugins/ddtrace/datadog_propagation.lua",
         ["kong.plugins.ddtrace.handler"] = "kong/plugins/ddtrace/handler.lua",
         ["kong.plugins.ddtrace.msgpack_encode"] = "kong/plugins/ddtrace/msgpack_encode.lua",
@@ -31,5 +33,14 @@ build = {
         ["kong.plugins.ddtrace.span"] = "kong/plugins/ddtrace/span.lua",
         ["kong.plugins.ddtrace.utils"] = "kong/plugins/ddtrace/utils.lua",
         ["kong.plugins.ddtrace.w3c_propagation"] = "kong/plugins/ddtrace/w3c_propagation.lua",
+    },
+    -- libdatadog's libdd-ai-usage-ffi, which the plugin requires, for both
+    -- architectures: built by scripts/build-libdd-ai-usage.sh, installed on
+    -- lua_package_cpath, and picked by ffi.arch at load.
+    install = {
+        lib = {
+            ["libdd_ai_usage_ffi-x86_64"] = "lib/libdd_ai_usage_ffi-x86_64.so",
+            ["libdd_ai_usage_ffi-aarch64"] = "lib/libdd_ai_usage_ffi-aarch64.so",
+        },
     },
 }

@@ -1,0 +1,45 @@
+name: Build libdd-ai-usage-ffi
+# libdatadog's libdd-ai-usage-ffi, which the plugin requires, built at the ref
+# in .libdatadog-version for each architecture the rock ships. manylinux2014
+# keeps the library at glibc 2.17, so it loads on every distribution Kong
+# ships for. Uploaded as the artifact libdd_ai_usage_ffi-<arch>.
+on:
+  workflow_call:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+      - name: Read the libdatadog ref
+        id: ref
+        run: echo "ref=$(tr -d '[:space:]' < .libdatadog-version)" >> "$GITHUB_OUTPUT"
+      - name: Cache the library
+        id: cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 #v4.2.3
+        with:
+          path: lib/libdd_ai_usage_ffi-${{ matrix.arch }}.so
+          key: libdd-ai-usage-ffi-${{ matrix.arch }}-${{ steps.ref.outputs.ref }}
+      # In manylinux2014 through docker run: actions cannot run in a
+      # glibc 2.17 container.
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo quay.io/pypa/manylinux2014_${{ matrix.arch }} bash -euc '
+            curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain 1.91.1
+            . "$HOME/.cargo/env"
+            scripts/build-libdd-ai-usage.sh lib'
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
+        with:
+          name: libdd_ai_usage_ffi-${{ matrix.arch }}
+          path: lib/libdd_ai_usage_ffi-${{ matrix.arch }}.so
+          if-no-files-found: error

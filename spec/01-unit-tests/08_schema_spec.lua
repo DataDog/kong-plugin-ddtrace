@@ -81,4 +81,26 @@ describe("ddtrace: schema", function()
             },
         }, err)
     end)
+
+    it("accepts AI usage metrics config", function()
+        local ok, err = validate_plugin_config_schema({
+            ai_usage_metrics_enabled = true,
+            dogstatsd_port = 8125,
+            ai_usage_metrics_flush_interval = 5,
+            ai_usage_metrics_tags = { "provider_account", "project", "route", "destination", "user", "service" },
+            ai_usage_metrics_api_key_id = "key_0001",
+            ai_usage_metrics_provider_account_id = "org-0001",
+            ai_usage_metrics_project_id = "proj_0001",
+        }, schema_def)
+        assert.is_truthy(ok)
+        assert.is_nil(err)
+    end)
+
+    it("rejects unknown AI usage metrics tags", function()
+        local ok, err = validate_plugin_config_schema({
+            ai_usage_metrics_tags = { "api_key" },
+        }, schema_def)
+        assert.is_falsy(ok)
+        assert.is_not_nil(err)
+    end)
 end)
