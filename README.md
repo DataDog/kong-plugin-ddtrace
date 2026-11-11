@@ -15,9 +15,9 @@ into the performance and behavior of your APIs.
 - **Configurable**: Supports a wide range of configuration options to tailor tracing to your
   specific needs.
 - **Compatibility**: Works with various Kong deployment environments, including Kubernetes.
-- **LLM Usage and Cost Metrics**: Sends token usage, cache and cost metrics for requests proxied by
-  Kong's AI Proxy plugin, following the OpenTelemetry GenAI metrics conventions. See
-  [LLM Usage and Cost Metrics](doc/configuration.md#llm-usage-and-cost-metrics).
+- **LLM Usage Metrics**: Sends token usage and cache metrics for requests proxied by Kong's AI Proxy
+  plugin, following the OpenTelemetry GenAI metrics conventions. See
+  [LLM Usage Metrics](doc/configuration.md#llm-usage-metrics).
 
 ## Getting Started
 

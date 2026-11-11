@@ -144,9 +144,8 @@ describe("ai usage glue", function()
         assert.equal(1, #find(lines, "^gen_ai%.client%.inference%.usage%.output_tokens:5|c|"))
         assert.equal(1, #find(lines, "^gen_ai%.client%.inference%.usage%.cache_read%.input_tokens:4|c|"))
         assert.equal(0, #find(lines, "trajectory%.token%.source"))
-        -- Kong's prices: (12 * 1 + 5 * 2) / 1e6.
-        assert.equal(1, #find(lines, "^trajectory%.gen_ai%.client%.inference%.usage%.cost:0%.000022|c|"))
-        assert.equal(1, #find(lines, "^trajectory%.gen_ai%.gateway%.request%.estimated_cost:0%.000022|c|"))
+        -- Kong's model prices have no cache rates: no cost is sent.
+        assert.equal(0, #find(lines, "cost"))
         for _, line in ipairs(find(lines, "input_tokens:12")) do
             assert.truthy(line:find("gen_ai.response.model:gpt-4o-mini-2024-07-18", 1, true))
             assert.truthy(line:find("trajectory.request.service_tier:default", 1, true))
@@ -188,6 +187,81 @@ describe("ai usage glue", function()
         assert.truthy(input[1]:find("trajectory.token.source:estimated", 1, true))
     end)
 
+    -- Bedrock: Converse's inputTokens leaves cache reads and writes out, so
+    -- the input is 10 + 20 + 3 (the trajectory-spec interop case "Converse
+    -- cache and request identity"). The parsing is libdatadog's, tested
+    -- there: this checks that Kong hands it Bedrock's bodies and streams.
+    local CONVERSE_BODY = '{"output":{"message":{"content":[{"text":"hi"}]}},"stopReason":"end_turn",'
+        .. '"serviceTier":{"type":"priority"},"usage":{"inputTokens":10,"outputTokens":5,"totalTokens":38,'
+        .. '"cacheReadInputTokens":20,"cacheWriteInputTokens":3},"metrics":{"latencyMs":5}}'
+
+    local function assert_converse_usage(lines, tier)
+        assert.equal(1, #find(lines, "^gen_ai%.client%.inference%.usage%.input_tokens:33|c|"))
+        assert.equal(1, #find(lines, "^gen_ai%.client%.inference%.usage%.output_tokens:5|c|"))
+        assert.equal(1, #find(lines, "^gen_ai%.client%.inference%.usage%.cache_read%.input_tokens:20|c|"))
+        assert.equal(1, #find(lines, "^gen_ai%.client%.inference%.usage%.cache_write%.input_tokens:3|c|"))
+        assert.equal(0, #find(lines, "trajectory%.token%.source"))
+        for _, line in ipairs(find(lines, "input_tokens:33")) do
+            assert.truthy(line:find("gen_ai.provider.name:aws.bedrock", 1, true), line)
+            assert.truthy(line:find("trajectory.request.service_tier:" .. tier, 1, true), line)
+        end
+    end
+
+    it("reads a buffered Bedrock Converse response's usage and cache", function()
+        assert_converse_usage(
+            run({ provider = "bedrock", model = "anthropic.claude-sonnet-4-5", body = CONVERSE_BODY }),
+            "priority"
+        )
+    end)
+
+    it("reads a Bedrock ConverseStream's AWS event stream as it passes", function()
+        -- messageStart, contentBlockDelta, contentBlockStop, messageStop and
+        -- metadata messages: libdatadog's stream-bedrock-converse vector.
+        local stream = ngx.decode_base64(
+            "AAAAhwAAAFLjgYMzCzpldmVudC10eXBlBwAMbWVzc2FnZVN0YXJ0DTpjb250ZW50LXR5cGUHABBhcHBsaWNhdGlvbi9qc29uDTpt"
+                .. "ZXNzYWdlLXR5cGUHAAVldmVudHsicCI6ImFiY2RlZmdoaWoiLCJyb2xlIjoiYXNzaXN0YW50In10WSZKAAAA7QAAAFdAaRhQCzpl"
+                .. "dmVudC10eXBlBwARY29udGVudEJsb2NrRGVsdGENOmNvbnRlbnQtdHlwZQcAEGFwcGxpY2F0aW9uL2pzb24NOm1lc3NhZ2UtdHlw"
+                .. "ZQcABWV2ZW50eyJjb250ZW50QmxvY2tJbmRleCI6MCwiZGVsdGEiOnsidGV4dCI6ImdlbmVyYXRlZCB0ZXh0IG5hbWluZyBcInVz"
+                .. "YWdlXCIsIFwibWV0YWRhdGFcIiBhbmQgXCJtZXNzYWdlU3RvcFwiIGlzIG5vdCBhbiBldmVudCJ9LCJwIjoiYWJjIn15l85xAAAA"
+                .. "jAAAAFaTPHY7CzpldmVudC10eXBlBwAQY29udGVudEJsb2NrU3RvcA06Y29udGVudC10eXBlBwAQYXBwbGljYXRpb24vanNvbg06"
+                .. "bWVzc2FnZS10eXBlBwAFZXZlbnR7ImNvbnRlbnRCbG9ja0luZGV4IjowLCJwIjoiYWJjZGVmZ2gifXGvZBoAAACFAAAAUQBIgekL"
+                .. "OmV2ZW50LXR5cGUHAAttZXNzYWdlU3RvcA06Y29udGVudC10eXBlBwAQYXBwbGljYXRpb24vanNvbg06bWVzc2FnZS10eXBlBwAF"
+                .. "ZXZlbnR7InAiOiJhYmNkIiwic3RvcFJlYXNvbiI6InRvb2xfdXNlIn3ejv14AAABFgAAAE7QugJ5CzpldmVudC10eXBlBwAIbWV0"
+                .. "YWRhdGENOmNvbnRlbnQtdHlwZQcAEGFwcGxpY2F0aW9uL2pzb24NOm1lc3NhZ2UtdHlwZQcABWV2ZW50eyJtZXRyaWNzIjp7Imxh"
+                .. "dGVuY3lNcyI6MzEyfSwicCI6ImFiIiwic2VydmljZVRpZXIiOnsidHlwZSI6ImRlZmF1bHQifSwidXNhZ2UiOnsiaW5wdXRUb2tl"
+                .. "bnMiOjEwLCJvdXRwdXRUb2tlbnMiOjUsInRvdGFsVG9rZW5zIjozOCwiY2FjaGVSZWFkSW5wdXRUb2tlbnMiOjIwLCJjYWNoZVdy"
+                .. "aXRlSW5wdXRUb2tlbnMiOjN9ffnwsZE="
+        )
+        assert.truthy(stream)
+        -- Chunks that split the messages and their preludes.
+        local chunks = {}
+        for at = 1, #stream, 37 do
+            chunks[#chunks + 1] = stream:sub(at, at + 36)
+        end
+        local lines = run({
+            provider = "bedrock",
+            model = "anthropic.claude-sonnet-4-5",
+            stream = true,
+            headers = { ["content-type"] = "application/vnd.amazon.eventstream" },
+        }, nil, chunks)
+        assert_converse_usage(lines, "default")
+    end)
+
+    it("marks Kong's own Bedrock counts estimated", function()
+        -- Kong counts Converse's inputTokens as the prompt, leaving the cache
+        -- out: not a count of the input this reports.
+        new_request({ provider = "bedrock", model = "anthropic.claude-sonnet-4-5", body = '{"output":{}}' })
+        local c = conf()
+        ai_usage.header_filter(c)
+        fake_ngx.ctx.ai_llm_metrics = { llm_prompt_tokens_count = 10, llm_completion_tokens_count = 5 }
+        fake_ngx.arg = { "", true }
+        ai_usage.body_filter(c)
+        ai_usage.log(c, nil)
+        local input = find(ai_usage.take_lines(), "^gen_ai%.client%.inference%.usage%.input_tokens:10|c|")
+        assert.equal(1, #input)
+        assert.truthy(input[1]:find("trajectory.token.source:estimated", 1, true), input[1])
+    end)
+
     -- The status vocabulary is libdatadog's, tested there: this checks what
     -- Kong hands it.
     it("labels failures with the shared error.type", function()
@@ -195,8 +269,6 @@ describe("ai usage glue", function()
         local durations = find(lines, "^gen_ai%.client%.inference%.duration:")
         assert.equal(1, #durations)
         assert.truthy(durations[1]:find("error.type:rate_limit_error", 1, true), durations[1])
-        -- A request that failed for good was charged nothing.
-        assert.equal(1, #find(lines, "^trajectory%.gen_ai%.gateway%.request%.estimated_cost:0|c|"))
         -- A response Kong made itself: the provider never answered.
         lines = run({ status = 502, source = "error" })
         durations = find(lines, "^gen_ai%.client%.inference%.duration:")
@@ -279,7 +351,9 @@ describe("ai usage glue", function()
                 lines = lines + 1
             end
         end
-        assert.is_true(lines >= 40 * 8)
+        -- Per request: the duration sample, its .sum and .count, and the
+        -- input, output and cache read counts.
+        assert.is_true(lines >= 40 * 6, tostring(lines))
         assert.same({}, ai_usage.take_lines())
     end)
 end)

@@ -247,9 +247,9 @@ describe("ai usage buffer", function()
         log_request()
         -- A request is dropped whole when its new points do not fit, so a
         -- batch never keeps an attempt without its breakdown: each of its
-        -- three documents is counted.
+        -- two documents is counted.
         local per_request = ai_usage.drops.total
-        assert.equal(3, per_request)
+        assert.equal(2, per_request)
         for _ = 1, 2 do
             log_request()
         end

@@ -5,8 +5,8 @@
 -- provider names and provider ids.
 --
 -- Values cross the boundary as JSON, except the datagrams a batch writes,
--- which are NUL-separated text. Costs are whole nano-USD; durations are
--- seconds measured to the millisecond, which 16 significant digits keep.
+-- which are NUL-separated text. Durations are seconds measured to the
+-- millisecond, which 16 significant digits keep.
 -- Every buffer the library writes is copied into a Lua string and released
 -- before the call returns.
 --
@@ -264,7 +264,8 @@ end
 -- Provider responses
 
 -- Usage is read with inclusive totals (cache in the input, reasoning in the
--- output), the counts a cost is computed from.
+-- output), as gen_ai.client.inference.usage.input_tokens and output_tokens
+-- count them.
 local INCLUSIVE_TOTALS = 1
 
 -- {usage, response_model, service_tier, outcome, error_name, error_type}
@@ -348,17 +349,6 @@ function _M.error_type_for_failure(status, no_response, timed_out, name)
     name = name or ""
     -- A status other than 200 that is not a failure is api_error.
     return text_result(lib.ddog_ai_usage_error_type(name, #name, status, buffer)) or "api_error"
-end
-
--- The cost in whole nano-USD of input and output token totals at
--- per-million prices (1000 nano-USD per token per USD), or nil. Kong has no
--- cache price, so cached input is priced as input.
-function _M.estimated_cost(input_per_million, output_per_million, input_tokens, output_tokens)
-    if not (input_per_million >= 0 and output_per_million >= 0) then
-        return nil
-    end
-    local nanos = 1000 * (input_tokens * input_per_million + (output_tokens or 0) * output_per_million)
-    return nanos < 2 ^ 53 and math.floor(nanos + 0.5) or nil
 end
 
 -- The lower-case response headers provider_ids reads for a provider, as a

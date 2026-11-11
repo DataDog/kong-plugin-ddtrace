@@ -29,7 +29,7 @@ Configuration can be set either through the plugin configuration field or enviro
 | `resource_name_rule` | | Replace matching resources to lower the cardinality on resource names | `v0.0.1` | `array[rule] with rule = {match=str, replacement=str}]` | `nil` |
 | `header_tags` |  | Set HTTP Headers as root tags | `v0.2.0` | `array[header_tag] with header_tag = {header=str, tag=str}]` | `nil` |
 | `startup_log` | `DD_TRACE_STARTUP_LOGS` | Log the tracer configuration once the tracer is fully initialized and every time there's a config update | `v0.2.3` | `boolean` | `true` |
-| `ai_usage_metrics_enabled` | | Send LLM usage and cost metrics for requests handled by Kong's AI Proxy plugin. See [LLM Usage and Cost Metrics](#llm-usage-and-cost-metrics) | unreleased | `boolean` | `false` |
+| `ai_usage_metrics_enabled` | | Send LLM usage metrics for requests handled by Kong's AI Proxy plugin. See [LLM Usage Metrics](#llm-usage-metrics) | unreleased | `boolean` | `false` |
 | `dogstatsd_port` | `DD_DOGSTATSD_PORT` | DogStatsD port of the Datadog Agent, on `agent_host`, that LLM usage metrics are sent to | unreleased | `number` | `8125` |
 | `ai_usage_metrics_flush_interval` | | Seconds between two sends of LLM usage metrics | unreleased | `number` | `10` |
 | `ai_usage_metrics_tags` | | Optional tags to add to LLM usage metrics: `provider_account`, `project`, `route`, `destination`, `key_alias`, `user`, `service` | unreleased | `array[str]` | `{}` |
@@ -95,9 +95,9 @@ Example outcomes:
 >
 > Additional details about regular expressions can be found in OpenResty documentation for [ngx.re.match](https://github.com/openresty/lua-nginx-module#ngxrematch) and [ngx.re.sub](https://github.com/openresty/lua-nginx-module#ngxresub) which are used to apply the resource name rules.
 
-## LLM Usage and Cost Metrics
+## LLM Usage Metrics
 
-With `ai_usage_metrics_enabled`, the plugin sends usage and cost metrics for every request that Kong's
+With `ai_usage_metrics_enabled`, the plugin sends token usage metrics for every request that Kong's
 AI Proxy plugin (`ai-proxy`) sends to a model provider. The metrics follow the
 [OpenTelemetry GenAI metrics semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-token-metrics.md)
 and are the same series that Datadog's LiteLLM integration sends, so dashboards and monitors work across
@@ -121,28 +121,26 @@ Per request to a model provider:
 | `gen_ai.client.inference.usage.output_tokens` | count | Output tokens, reasoning included |
 | `gen_ai.client.inference.usage.cache_read.input_tokens` | count | Input tokens read from the provider's prompt cache, when the provider reports them |
 | `gen_ai.client.inference.usage.cache_write.input_tokens` | count | Input tokens written to the provider's prompt cache, by `trajectory.cache.lifetime`, when the provider reports them |
-| `trajectory.gen_ai.client.inference.usage.cost` | count | Estimated cost in USD, at the model's configured `input_cost` and `output_cost` |
-
-Per client request:
-
-| Metric | Type | Description |
-| ------ | ---- | ----------- |
-| `trajectory.gen_ai.gateway.request.estimated_cost` | count | Estimated cost of the request in USD; `0` for a request that failed |
 
 Every distribution also sends `<name>.sum` and `<name>.count` counts.
+
+No cost metric is sent. The AI Proxy model's `input_cost` and `output_cost` have no cache-read or cache-write
+price, so a cost computed from them would overstate every request that uses the prompt cache. The token
+counts above, cache reads and writes included, are what a cost is priced from, at each model's own rates.
 
 Tags: `gen_ai.operation.name` (`chat`, `text_completion` or `embeddings`), `gen_ai.provider.name` (`openai`,
 `anthropic`, `azure.ai.openai`, `aws.bedrock`, `gcp.gemini`, `gcp.vertex_ai`, `mistral_ai`, `cohere`, ...),
 `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.token.modality`, `trajectory.request.service_tier`
 (as the provider's response names it), `trajectory.token.source:estimated` (when the provider reported no
-count and Kong's own estimate is used), `trajectory.cost.source:estimated`, `trajectory.observation.point:gateway`
-and `trajectory.profile`. A value that was not observed is left out, never sent as zero. Prompts, responses
+count and Kong's own estimate is used), `trajectory.observation.point:gateway` and `trajectory.profile`. A value that was not observed is left out, never sent as zero. Prompts, responses
 and keys are never read into metrics.
 
 Token counts are read from the provider's response as it passes through Kong: the usage of a buffered
 response, or the usage events of a stream (for OpenAI streams, the client must ask for usage with
-`stream_options.include_usage`). The cost is only sent when the AI Proxy model sets `input_cost` and
-`output_cost`.
+`stream_options.include_usage`). For Bedrock, that is the Converse response's `usage`, or the `metadata`
+event of a ConverseStream or the Anthropic events of an InvokeModelWithResponseStream, read from its AWS
+event stream; Converse's `inputTokens` leaves cached input out, so the input count adds
+`cacheReadInputTokens` and `cacheWriteInputTokens` back in.
 
 Each Kong worker buffers its metrics and sends them every `ai_usage_metrics_flush_interval` seconds, or
 sooner when the buffer is 80% full, so the request rate does not depend on the interval. Metrics are dropped

@@ -1,20 +1,20 @@
--- LLM usage and cost metrics for requests proxied by Kong's AI Proxy plugins
--- (ai-proxy, and ai-proxy-advanced where it shares their request state).
+-- LLM usage metrics for requests proxied by Kong's AI Proxy plugins (ai-proxy,
+-- and ai-proxy-advanced where it shares their request state).
 --
--- For each client request the AI proxy handles, this module records:
--- - one provider attempt (gen_ai.client.provider_attempt@0.1.0, and
---   trajectory.gen_ai.client.token_breakdown@0.1.0 when usage is known): the
---   request Kong sent to the model provider, its duration, token usage, cache
---   reads and writes, and the cost Kong estimated for it;
--- - one gateway request (trajectory.gen_ai.gateway.request@0.1.0): the cost
---   Kong estimated for the client's request.
+-- For each client request the AI proxy handles, this module records one
+-- provider attempt (gen_ai.client.provider_attempt@0.1.0, and
+-- trajectory.gen_ai.client.token_breakdown@0.1.0 when usage is known): the
+-- request Kong sent to the model provider, its duration, its token usage,
+-- and its cache reads and writes.
 --
 -- Token counts are read from the provider's own response: the body of a
--- buffered response, or the events of a stream as they pass through. When
--- the provider reported none, the counts Kong computed are used and marked
--- estimated. Costs are Kong's, from the model's configured input_cost and
--- output_cost. Prompts, responses and keys are never read into metrics: only
--- the usage object, the model and the service tier of a response are kept.
+-- buffered response, or the events of a stream (server-sent events, or
+-- Bedrock's AWS event stream) as they pass through. When the provider
+-- reported none, the counts Kong computed are used and marked estimated.
+-- No cost is sent: Kong's model prices have no cache rates, so the token
+-- counts are priced where they are read. Prompts, responses and keys are never read
+-- into metrics: only the usage object, the model and the service tier of a
+-- response are kept.
 --
 -- The metrics are sent to the Datadog Agent over DogStatsD.
 --
@@ -44,19 +44,18 @@ local DEFAULT_METRICS = {
     ["gen_ai.client.inference.usage.output_tokens"] = true,
     ["gen_ai.client.inference.usage.cache_read.input_tokens"] = true,
     ["gen_ai.client.inference.usage.cache_write.input_tokens"] = true,
-    ["trajectory.gen_ai.client.inference.usage.cost"] = true,
-    ["trajectory.gen_ai.gateway.request.estimated_cost"] = true,
 }
 _M.DEFAULT_METRICS = DEFAULT_METRICS
 
--- Providers whose streamed and buffered counts Kong reads from the
--- provider's response rather than estimating them.
+-- Providers whose buffered counts Kong reads from the provider's response
+-- rather than estimating them, so they are reported when the library read
+-- none. Bedrock is not one: Kong counts Converse's inputTokens as the prompt,
+-- which leaves cached input out, so its count is not the input this reports.
 local KONG_COUNTS_REPORTED = {
     cohere = true,
     llama2 = true,
     anthropic = true,
     gemini = true,
-    bedrock = true,
 }
 
 local OPT_IN_PROVIDER_IDS = {
@@ -155,7 +154,9 @@ end
 
 -- Usage from a provider response
 
--- Feed a stream's chunks to the library as they pass.
+-- Feed a stream's chunks to the library as they pass: server-sent events, or
+-- Bedrock's AWS event stream, whose binary messages the library reads as
+-- they are (it tells the two apart by the first byte).
 local function feed_stream(state, chunk)
     if not state.stream_reader then
         state.stream_reader = usage_ffi.new_stream("auto", state.embeddings)
@@ -391,7 +392,6 @@ end
 local PROFILES = {
     provider_attempt = "gen_ai.client.provider_attempt@0.1.0",
     token_breakdown = "trajectory.gen_ai.client.token_breakdown@0.1.0",
-    gateway_request = "trajectory.gen_ai.gateway.request@0.1.0",
 }
 
 local METRIC_NAMES = {}
@@ -426,7 +426,10 @@ function _M.header_filter(conf)
         status = response.get_status(),
         source = kong.response.get_source(),
         stream = global.stream_mode == true,
-        sse = str_find(content_type, "text/event-stream", 1, true) ~= nil,
+        -- Server-sent events, or the AWS event stream of Bedrock's
+        -- ConverseStream and InvokeModelWithResponseStream.
+        stream_body = str_find(content_type, "text/event-stream", 1, true) ~= nil
+            or str_find(content_type, "application/vnd.amazon.eventstream", 1, true) ~= nil,
         gzip = response.get_header("Content-Encoding") == "gzip",
         embeddings = operation_name(request.route_type) == "embeddings",
     }
@@ -455,7 +458,7 @@ function _M.body_filter(_)
     if not state then
         return
     end
-    if state.sse and state.status == 200 and not state.gzip and not ngx.ctx.buffered_proxying then
+    if state.stream_body and state.status == 200 and not state.gzip and not ngx.ctx.buffered_proxying then
         local chunk = ngx.arg[1]
         if type(chunk) == "string" and #chunk > 0 then
             feed_stream(state, chunk)
@@ -545,8 +548,6 @@ function _M.log(conf, target)
     if request_model == "UNSPECIFIED" then
         request_model = nil
     end
-    local options = type(model.options) == "table" and model.options or {}
-    local priced = type(options.input_cost) == "number" and type(options.output_cost) == "number"
     local status = state.status
     if status == nil then
         status = kong.service.response.get_status()
@@ -558,11 +559,9 @@ function _M.log(conf, target)
     local attributes = deployment_attributes(conf, target, tags, state)
 
     local documents = {}
-    local gateway_cost
     -- The provider attempt: Kong reached the balancer for it.
     local attempt_start = ctx.KONG_BALANCER_START
-    local attempted = attempt_start ~= nil
-    if attempted then
+    if attempt_start ~= nil then
         local embeddings = operation == "embeddings"
         local observation = {
             operation_name = operation,
@@ -574,7 +573,7 @@ function _M.log(conf, target)
             error_type = err,
         }
         if not failed then
-            if not state.sse then
+            if not state.stream_body then
                 state.embeddings = embeddings
                 read_buffered_body(state)
             end
@@ -600,20 +599,6 @@ function _M.log(conf, target)
                 observation.input_token_source = "estimated"
                 observation.output_token_source = "estimated"
             end
-            -- The cost at the model's configured prices, as Kong applies them
-            -- to the input and output totals: the provider's when it reported
-            -- them (read with inclusive totals), so the cost agrees with the
-            -- token metrics.
-            local input, output = observation.input_tokens, observation.output_tokens
-            local cost = priced
-                and input ~= nil
-                and (output ~= nil or embeddings)
-                and usage_ffi.estimated_cost(options.input_cost, options.output_cost, input, output)
-            if cost then
-                observation.cost_nano_usd = cost
-                observation.cost_source = "estimated"
-                gateway_cost = cost
-            end
             observation.service_tier = string_value(response.service_tier)
         end
         documents[1] = {
@@ -630,29 +615,14 @@ function _M.log(conf, target)
         end
     end
 
-    -- The gateway request. A request that failed for good was charged
-    -- nothing.
-    local gateway = {
-        operation_name = operation,
-        request_model = request_model,
-        duration_seconds = seconds_since_ms(ctx.KONG_PROCESSING_START, now) or 0,
-        observation_point = "gateway",
-        provider_operations = attempted and 1 or 0,
-        provider_operation_coverage = "complete",
-        error_type = err,
-    }
-    gateway.estimated_cost_nano_usd = failed and 0 or gateway_cost
-    documents[#documents + 1] = {
-        profile = PROFILES.gateway_request,
-        observation = gateway,
-        deployment_attributes = attributes,
-    }
     -- All of the request's documents or none: a full batch never keeps an
     -- attempt without its breakdown. A request it has no room for is
     -- counted by the library.
-    local ok, add_err = batch:add_request(documents)
-    if not ok then
-        kong.log.debug("ddtrace: AI usage observations rejected: ", add_err)
+    if documents[1] then
+        local ok, add_err = batch:add_request(documents)
+        if not ok then
+            kong.log.debug("ddtrace: AI usage observations rejected: ", add_err)
+        end
     end
     -- The memory ceiling: reached only when sends cannot keep up.
     warn_drops(now)

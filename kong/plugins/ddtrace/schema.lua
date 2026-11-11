@@ -132,7 +132,7 @@ return {
                         },
                     },
                     { startup_log = { type = "boolean", default = true } },
-                    -- LLM usage and cost metrics for requests proxied by Kong's AI Proxy plugins.
+                    -- LLM usage metrics for requests proxied by Kong's AI Proxy plugins.
                     { ai_usage_metrics_enabled = { type = "boolean", default = false } },
                     { dogstatsd_port = { type = "integer", default = 8125, between = { 1, 65535 } } },
                     { ai_usage_metrics_flush_interval = { type = "number", default = 10, gt = 0 } },
